@@ -24,6 +24,7 @@ import net.openmanet.perfapp.data.dao.TestSessionDao
 import net.openmanet.perfapp.data.entities.TestSession
 import net.openmanet.perfapp.gps.GpsRepository
 import net.openmanet.perfapp.ping.PingCollector
+import net.openmanet.perfapp.ping.PingTarget
 import java.util.UUID
 import javax.inject.Inject
 
@@ -50,16 +51,20 @@ class TestSessionService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_START -> startSession(
-                nodeId = intent.getStringExtra(EXTRA_NODE_ID),
-                pingTargets = intent.getStringArrayListExtra(EXTRA_PING_TARGETS).orEmpty(),
-            )
+            ACTION_START -> {
+                val hosts = intent.getStringArrayListExtra(EXTRA_PING_TARGET_HOSTS).orEmpty()
+                val labels = intent.getStringArrayListExtra(EXTRA_PING_TARGET_LABELS).orEmpty()
+                startSession(
+                    nodeId = intent.getStringExtra(EXTRA_NODE_ID),
+                    pingTargets = hosts.zip(labels) { host, label -> PingTarget(host, label) },
+                )
+            }
             ACTION_STOP -> stopSession()
         }
         return START_NOT_STICKY
     }
 
-    private fun startSession(nodeId: String?, pingTargets: List<String>) {
+    private fun startSession(nodeId: String?, pingTargets: List<PingTarget>) {
         if (currentSessionId != null) return
         val sessionId = UUID.randomUUID().toString()
         currentSessionId = sessionId
@@ -133,7 +138,8 @@ class TestSessionService : Service() {
         const val ACTION_START = "net.openmanet.perfapp.session.START"
         const val ACTION_STOP = "net.openmanet.perfapp.session.STOP"
         const val EXTRA_NODE_ID = "node_id"
-        const val EXTRA_PING_TARGETS = "ping_targets"
+        const val EXTRA_PING_TARGET_HOSTS = "ping_target_hosts"
+        const val EXTRA_PING_TARGET_LABELS = "ping_target_labels"
         const val NOTIFICATION_CHANNEL_ID = "test_session"
         const val NOTIFICATION_ID = 1001
     }

@@ -25,6 +25,10 @@ buf generate \
   --path app/src/main/proto/openmanet/service/v1/interface.proto \
   --path app/src/main/proto/openmanet/service/v1/station.proto \
   --path app/src/main/proto/openmanet/gnss/v1/gnss_service.proto \
-  --path app/src/main/proto/openmanet/gnss/v1/gnss.proto
+  --path app/src/main/proto/openmanet/gnss/v1/gnss.proto \
+  --path app/src/main/proto/openmanet/dashboard/v1/dashboard_service.proto \
+  --path app/src/main/proto/openmanet/dashboard/v1/dashboard.proto \
+  --path app/src/main/proto/openmanet/mesh_topology/v1/mesh_topology_service.proto \
+  --path app/src/main/proto/openmanet/mesh_topology/v1/mesh_topology.proto
 
 echo "Generated $(find app/src/main/kotlin-gen -type f | wc -l | tr -d ' ') files in app/src/main/kotlin-gen"

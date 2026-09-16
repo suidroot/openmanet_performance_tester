@@ -26,14 +26,14 @@ object ManetRoutes {
     const val NODE_SELECT = "node_select"
     const val DASHBOARD = "dashboard"
     const val SETTINGS = "settings"
-    const val PING = "ping/{sessionId}"
+    const val PING = "ping/{sessionId}?nodeIp={nodeIp}"
     const val GPS = "gps/{sessionId}"
     const val IPERF_PROFILES = "iperf_profiles/{sessionId}"
     const val IPERF = "iperf/{sessionId}?profileId={profileId}"
     const val SESSIONS = "sessions"
     const val EXPORT = "export/{sessionId}"
 
-    fun ping(sessionId: String) = "ping/$sessionId"
+    fun ping(sessionId: String, nodeIp: String) = "ping/$sessionId?nodeIp=$nodeIp"
     fun gps(sessionId: String) = "gps/$sessionId"
     fun iperfProfiles(sessionId: String) = "iperf_profiles/$sessionId"
     fun iperf(sessionId: String, profileId: Long = -1L) = "iperf/$sessionId?profileId=$profileId"
@@ -81,7 +81,7 @@ fun ManetNavHost(navController: NavHostController = rememberNavController()) {
         composable(ManetRoutes.DASHBOARD) {
             DashboardScreen(
                 connectionViewModel = connectionViewModel,
-                onOpenPing = { sessionId -> navController.navigate(ManetRoutes.ping(sessionId)) },
+                onOpenPing = { sessionId, nodeIp -> navController.navigate(ManetRoutes.ping(sessionId, nodeIp)) },
                 onOpenGps = { sessionId -> navController.navigate(ManetRoutes.gps(sessionId)) },
                 onOpenIperf = { sessionId -> navController.navigate(ManetRoutes.iperfProfiles(sessionId)) },
                 onOpenSessions = { navController.navigate(ManetRoutes.SESSIONS) },
@@ -92,7 +92,10 @@ fun ManetNavHost(navController: NavHostController = rememberNavController()) {
         }
         composable(
             route = ManetRoutes.PING,
-            arguments = listOf(navArgument("sessionId") { type = NavType.StringType }),
+            arguments = listOf(
+                navArgument("sessionId") { type = NavType.StringType },
+                navArgument("nodeIp") { type = NavType.StringType; defaultValue = "" },
+            ),
         ) {
             PingScreen()
         }

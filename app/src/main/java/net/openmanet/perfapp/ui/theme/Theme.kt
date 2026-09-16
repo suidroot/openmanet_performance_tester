@@ -1,31 +1,30 @@
 package net.openmanet.perfapp.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
 
-private val Blue = Color(0xFF0B3D91)
-private val BlueLight = Color(0xFF4B6FB8)
-
-private val DarkColors = darkColorScheme(
-    primary = BlueLight,
+private val TerminalColors = darkColorScheme(
+    background = TerminalBackground,
+    surface = TerminalSurface,
+    surfaceVariant = TerminalSurfaceVariant,
+    primary = TerminalCyan,
+    onPrimary = TerminalBackground,
+    secondary = TerminalCyanDim,
+    onBackground = TerminalTextPrimary,
+    onSurface = TerminalTextPrimary,
+    onSurfaceVariant = TerminalTextSecondary,
+    outline = TerminalOutline,
+    error = TerminalRed,
+    onError = TerminalTextPrimary,
 )
 
-private val LightColors = lightColorScheme(
-    primary = Blue,
-)
-
+/** Always dark - this is a field-ops "terminal" aesthetic, not something with a light variant. */
 @Composable
-fun ManetPerfAppTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    content: @Composable () -> Unit,
-) {
-    val colorScheme = if (darkTheme) DarkColors else LightColors
+fun ManetPerfAppTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = colorScheme,
+        colorScheme = TerminalColors,
+        typography = TerminalTypography,
         content = content,
     )
 }

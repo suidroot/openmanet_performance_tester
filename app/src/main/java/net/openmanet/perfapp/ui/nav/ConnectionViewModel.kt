@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import net.openmanet.perfapp.auth.NodeCredentialStore
 import net.openmanet.perfapp.connectivity.ConnectionState
 import net.openmanet.perfapp.connectivity.DefaultGatewayResolver
 import net.openmanet.perfapp.connectivity.PendingNode
@@ -32,6 +33,7 @@ class ConnectionViewModel @Inject constructor(
     private val nodeProfileDao: NodeProfileDao,
     private val authRepository: AuthRepository,
     private val sessionTokenHolder: SessionTokenHolder,
+    private val nodeCredentialStore: NodeCredentialStore,
     private val defaultGatewayResolver: DefaultGatewayResolver,
     private val clock: AppClock,
 ) : ViewModel() {
@@ -45,12 +47,16 @@ class ConnectionViewModel @Inject constructor(
     /** Best-effort prefill for the node-address field; null if no active network/route yet. */
     fun suggestedNodeAddress(): String? = defaultGatewayResolver.currentGatewayAddress()
 
+    /** Remembered username/password for this node, if the user has connected to it before. */
+    fun savedCredentials(nodeIp: String): Pair<String, String>? = nodeCredentialStore.get(nodeIp)
+
     fun connect(node: PendingNode, username: String, password: String) {
         _state.value = ConnectionState.Connecting(node)
         viewModelScope.launch {
             authRepository.login(node.ip, username, password).fold(
                 onSuccess = {
                     _state.value = ConnectionState.Connected(node)
+                    nodeCredentialStore.save(node.ip, username, password)
                     nodeProfileDao.upsert(
                         NodeProfile(
                             ipAddress = node.ip,

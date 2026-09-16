@@ -31,7 +31,7 @@ fun SessionListScreen(
     val sessions by viewModel.sessions.collectAsStateWithLifecycle()
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Sessions") }) },
+        topBar = { TopAppBar(title = { Text("SESSIONS") }) },
     ) { padding ->
         if (sessions.isEmpty()) {
             Text("No test sessions yet.", modifier = Modifier.padding(padding).padding(24.dp))

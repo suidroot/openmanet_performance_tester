@@ -61,7 +61,7 @@ fun IperfScreen(viewModel: IperfViewModel = hiltViewModel()) {
     val summaryRows = samples.filter { it.isSummary }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("iperf3") }) },
+        topBar = { TopAppBar(title = { Text("IPERF3") }) },
     ) { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),

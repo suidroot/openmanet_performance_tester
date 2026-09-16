@@ -17,12 +17,13 @@ class PingCollector @Inject constructor(
     private val pingResultDao: PingResultDao,
     private val clock: AppClock,
 ) {
-    fun collect(sessionId: String, targets: List<String>, intervalMs: Long, scope: CoroutineScope): List<Job> =
+    fun collect(sessionId: String, targets: List<PingTarget>, intervalMs: Long, scope: CoroutineScope): List<Job> =
         targets.map { target ->
             scope.launch {
                 while (isActive) {
-                    val raw = pingRunner.pingOnce(target)
-                    val result = PingOutputParser.parse(sessionId, target, clock.nowMs(), raw)
+                    val raw = pingRunner.pingOnce(target.host)
+                    val result = PingOutputParser.parse(sessionId, target.host, clock.nowMs(), raw)
+                        .copy(targetLabel = target.label)
                     pingResultDao.insert(result)
                     delay(intervalMs)
                 }

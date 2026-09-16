@@ -44,7 +44,7 @@ fun IperfProfilesScreen(
     var reverse by remember { mutableStateOf(false) }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("iperf3 profiles") }) },
+        topBar = { TopAppBar(title = { Text("IPERF3 PROFILES") }) },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             if (profiles.isEmpty()) {

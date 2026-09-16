@@ -8,6 +8,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import net.openmanet.perfapp.auth.NodeCredentialStore
 import net.openmanet.perfapp.connectivity.ConnectionState
 import net.openmanet.perfapp.connectivity.DefaultGatewayResolver
 import net.openmanet.perfapp.connectivity.PendingNode
@@ -22,6 +23,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -32,6 +34,7 @@ class ConnectionViewModelTest {
     private lateinit var nodeProfileDao: FakeNodeProfileDao
     private lateinit var authRepository: AuthRepository
     private lateinit var sessionTokenHolder: SessionTokenHolder
+    private lateinit var nodeCredentialStore: NodeCredentialStore
     private lateinit var defaultGatewayResolver: DefaultGatewayResolver
     private lateinit var viewModel: ConnectionViewModel
 
@@ -43,12 +46,14 @@ class ConnectionViewModelTest {
         nodeProfileDao = FakeNodeProfileDao()
         authRepository = mock()
         sessionTokenHolder = SessionTokenHolder()
+        nodeCredentialStore = mock()
         defaultGatewayResolver = mock()
         whenever(defaultGatewayResolver.currentGatewayAddress()).thenReturn(null)
         viewModel = ConnectionViewModel(
             nodeProfileDao,
             authRepository,
             sessionTokenHolder,
+            nodeCredentialStore,
             defaultGatewayResolver,
             FakeAppClock(),
         )
@@ -82,6 +87,7 @@ class ConnectionViewModelTest {
         assertEquals(testNode, (state as ConnectionState.Connected).node)
         assertEquals(testNode.ip, nodeProfileDao.saved.single().ipAddress)
         assertEquals("root", nodeProfileDao.saved.single().lastUsername)
+        verify(nodeCredentialStore).save(testNode.ip, "root", "hunter2")
     }
 
     @Test

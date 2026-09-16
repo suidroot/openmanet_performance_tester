@@ -25,13 +25,14 @@ import java.util.Locale
 @Composable
 fun PingScreen(viewModel: PingViewModel = hiltViewModel()) {
     val results by viewModel.results.collectAsStateWithLifecycle()
+    val expectedThroughputByHost by viewModel.expectedThroughputBpsByHost.collectAsStateWithLifecycle()
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Ping (${results.size})") }) },
+        topBar = { TopAppBar(title = { Text("PING (${results.size})") }) },
     ) { padding ->
         LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
             items(results.asReversed(), key = { it.id }) { result ->
-                PingResultRow(result)
+                PingResultRow(result, expectedThroughputByHost[result.targetHost])
                 HorizontalDivider()
             }
         }
@@ -39,17 +40,20 @@ fun PingScreen(viewModel: PingViewModel = hiltViewModel()) {
 }
 
 @Composable
-private fun PingResultRow(result: PingResult) {
+private fun PingResultRow(result: PingResult, expectedThroughputBps: Int?) {
     val timeFormat = remember { SimpleDateFormat("HH:mm:ss", Locale.US) }
+    val headline = result.targetLabel?.let { "$it (${result.targetHost})" } ?: result.targetHost
     ListItem(
-        headlineContent = { Text(result.targetHost) },
-        supportingContent = { Text(timeFormat.format(Date(result.timestampMs))) },
+        headlineContent = { Text(headline) },
+        supportingContent = {
+            val expected = expectedThroughputBps?.let { " — expected %.1f Mbit/s".format(it / 1_000_000.0) }.orEmpty()
+            Text(timeFormat.format(Date(result.timestampMs)) + expected)
+        },
         trailingContent = {
             Text(
                 text = if (result.success) "${result.rttMs} ms" else "timeout",
                 color = if (result.success) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
             )
         },
-        modifier = Modifier.fillMaxWidth(),
     )
 }

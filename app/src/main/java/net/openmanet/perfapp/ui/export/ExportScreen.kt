@@ -27,7 +27,7 @@ fun ExportScreen(viewModel: ExportViewModel = hiltViewModel()) {
     val endpointUrl by viewModel.endpointUrl.collectAsStateWithLifecycle()
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Export") }) },
+        topBar = { TopAppBar(title = { Text("EXPORT") }) },
     ) { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),

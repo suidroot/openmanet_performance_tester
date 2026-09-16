@@ -27,7 +27,7 @@ fun GpsScreen(viewModel: GpsViewModel = hiltViewModel()) {
     val fixes by viewModel.fixes.collectAsStateWithLifecycle()
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("GPS fixes (${fixes.size})") }) },
+        topBar = { TopAppBar(title = { Text("GPS FIXES (${fixes.size})") }) },
     ) { padding ->
         LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
             items(fixes.asReversed(), key = { it.id }) { fix ->

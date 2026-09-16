@@ -1,0 +1,14 @@
+*.iml
+.gradle/
+build/
+/local.properties
+.idea/
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+local.properties
+app/schemas/
+app/src/main/kotlin-gen/
+.native-build/
+.claude/scheduled_tasks.lock

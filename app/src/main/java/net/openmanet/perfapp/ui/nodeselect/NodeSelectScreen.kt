@@ -59,7 +59,13 @@ fun NodeSelectScreen(
 
     LaunchedEffect(Unit) {
         if (!prefilled) {
-            viewModel.suggestedNodeAddress()?.let { ip = it }
+            viewModel.suggestedNodeAddress()?.let { suggested ->
+                ip = suggested
+                viewModel.savedCredentials(suggested)?.let { (savedUsername, savedPassword) ->
+                    username = savedUsername
+                    password = savedPassword
+                }
+            }
             prefilled = true
         }
     }
@@ -67,14 +73,25 @@ fun NodeSelectScreen(
     fun fillFrom(profile: NodeProfile) {
         displayName = profile.displayName
         ip = profile.ipAddress
-        username = profile.lastUsername.orEmpty()
+        val saved = viewModel.savedCredentials(profile.ipAddress)
+        username = saved?.first ?: profile.lastUsername.orEmpty()
+        password = saved?.second.orEmpty()
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Connect to OpenManet Node") },
-                actions = { TextButton(onClick = onOpenSettings) { Text("Settings") } },
+                title = {
+                    Column {
+                        Text("◇ OPENMANET", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+                        Text(
+                            "MESH TERMINAL",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = net.openmanet.perfapp.ui.theme.TerminalTextSecondary,
+                        )
+                    }
+                },
+                actions = { TextButton(onClick = onOpenSettings) { Text("SETTINGS") } },
             )
         },
     ) { padding ->
