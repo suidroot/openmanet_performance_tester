@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -14,8 +15,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import net.openmanet.perfapp.core.AppClock
 import net.openmanet.perfapp.data.dao.GpsFixDao
+import net.openmanet.perfapp.data.dao.PingResultDao
 import net.openmanet.perfapp.data.entities.GpsFix
-import net.openmanet.perfapp.data.entities.GpsSource
+import net.openmanet.perfapp.data.entities.PingResult
 import net.openmanet.perfapp.rpc.MeshNeighbor
 import net.openmanet.perfapp.rpc.MeshNode
 import net.openmanet.perfapp.rpc.MeshStatus
@@ -23,6 +25,7 @@ import net.openmanet.perfapp.rpc.MeshTopologyRepository
 import net.openmanet.perfapp.rpc.NeighborRepository
 import net.openmanet.perfapp.rpc.NodeRepository
 import net.openmanet.perfapp.rpc.StatusRepository
+import net.openmanet.perfapp.rpc.baseHostname
 import net.openmanet.perfapp.session.ActiveSessionHolder
 import net.openmanet.perfapp.settings.RefreshSettingsRepository
 import javax.inject.Inject
@@ -38,10 +41,11 @@ data class DashboardUiState(
     /** neighbor hostname -> forwarding hops from the connected node, from MeshTopologyService. */
     val hopsByHostname: Map<String, Int> = emptyMap(),
     val gatewayHostname: String? = null,
+    val selfHostname: String? = null,
 ) {
     val averageHops: Double?
         get() {
-            val values = neighbors.mapNotNull { hopsByHostname[it.neighbor.substringBefore(".")] }
+            val values = neighbors.mapNotNull { hopsByHostname[it.neighbor.baseHostname()] }
             return if (values.isEmpty()) null else values.average()
         }
 
@@ -53,6 +57,20 @@ data class DashboardUiState(
         get() = neighbors.map { it.signal }.takeIf { it.isNotEmpty() }?.average()
 }
 
+/** One discovered OpenMANET node (never self), combining its NodeService identity with whatever
+ * live data is available for it: hop count/gateway role from MeshTopologyService, direct-link
+ * stats from MeshNeighborService (null if it's a multi-hop node, not a direct neighbor), and the
+ * most recent ping result from the active test session (null if none yet). Drives one card per
+ * node on the dashboard. */
+data class NodePeerUiState(
+    val hostname: String,
+    val ipAddress: String,
+    val isGateway: Boolean,
+    val hops: Int?,
+    val neighbor: MeshNeighbor?,
+    val latestPing: PingResult?,
+)
+
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
     private val nodeRepository: NodeRepository,
@@ -60,6 +78,7 @@ class DashboardViewModel @Inject constructor(
     private val statusRepository: StatusRepository,
     private val meshTopologyRepository: MeshTopologyRepository,
     private val gpsFixDao: GpsFixDao,
+    private val pingResultDao: PingResultDao,
     private val activeSessionHolder: ActiveSessionHolder,
     private val refreshSettingsRepository: RefreshSettingsRepository,
     private val clock: AppClock,
@@ -71,14 +90,41 @@ class DashboardViewModel @Inject constructor(
     val refreshIntervalMs: StateFlow<Long> = refreshSettingsRepository.intervalMs
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RefreshSettingsRepository.DEFAULT_INTERVAL_MS)
 
-    /** Most recent device-GPS fix for whichever session is currently active, or null if there's
-     * no active session yet or it hasn't produced a fix. */
-    val latestDeviceGpsFix: StateFlow<GpsFix?> = activeSessionHolder.sessionId
+    /** Most recent GPS fix for whichever session is currently active, from either source (device
+     * GPS or the mesh's CoT multicast feed) - whichever produced a fix most recently, or null if
+     * there's no active session yet or neither has produced one. */
+    val latestGpsFix: StateFlow<GpsFix?> = activeSessionHolder.sessionId
         .flatMapLatest { sessionId ->
             if (sessionId == null) flowOf(emptyList()) else gpsFixDao.observeForSession(sessionId)
         }
-        .map { fixes -> fixes.lastOrNull { it.source == GpsSource.DEVICE } }
+        .map { fixes -> fixes.lastOrNull() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Most recent ping result per target host for whichever session is currently active. */
+    private val latestPingByHost: StateFlow<Map<String, PingResult>> = activeSessionHolder.sessionId
+        .flatMapLatest { sessionId ->
+            if (sessionId == null) flowOf(emptyList()) else pingResultDao.observeForSession(sessionId)
+        }
+        .map { results -> results.groupBy { it.targetHost }.mapValues { (_, v) -> v.maxBy { it.timestampMs } } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** One card's worth of data per discovered node (self excluded), combining identity, live
+     * topology/neighbor stats and the latest ping result - see NodePeerUiState. */
+    val peerCards: StateFlow<List<NodePeerUiState>> = combine(uiState, latestPingByHost) { state, pingByHost ->
+        val neighborsByHostname = state.neighbors.associateBy { it.neighbor.baseHostname() }
+        state.nodes
+            .filter { it.hostname != state.selfHostname }
+            .map { node ->
+                NodePeerUiState(
+                    hostname = node.hostname,
+                    ipAddress = node.ipAddress,
+                    isGateway = node.hostname == state.gatewayHostname,
+                    hops = state.hopsByHostname[node.hostname],
+                    neighbor = neighborsByHostname[node.hostname],
+                    latestPing = pingByHost[node.ipAddress],
+                )
+            }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * Refreshes dashboard data in place: isLoading flips on/off around the fetch (for a subtle
@@ -107,6 +153,7 @@ class DashboardViewModel @Inject constructor(
                 neighbors = neighborsResult.getOrNull() ?: _uiState.value.neighbors,
                 hopsByHostname = hopsByHostname.ifEmpty { _uiState.value.hopsByHostname },
                 gatewayHostname = gatewayHostname ?: _uiState.value.gatewayHostname,
+                selfHostname = topology?.selfHostname?.takeIf { it.isNotBlank() } ?: _uiState.value.selfHostname,
                 error = listOfNotNull(
                     statusResult.exceptionOrNull()?.message,
                     nodesResult.exceptionOrNull()?.message,

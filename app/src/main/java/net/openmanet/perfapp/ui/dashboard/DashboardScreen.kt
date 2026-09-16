@@ -17,6 +17,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -31,10 +32,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import androidx.compose.material3.HorizontalDivider
 import net.openmanet.perfapp.connectivity.ConnectionState
 import net.openmanet.perfapp.data.entities.GpsFix
+import net.openmanet.perfapp.data.entities.GpsSource
+import net.openmanet.perfapp.data.entities.PingResult
 import net.openmanet.perfapp.ping.PingTarget
-import net.openmanet.perfapp.rpc.MeshNeighbor
 import net.openmanet.perfapp.ui.nav.ConnectionViewModel
 import net.openmanet.perfapp.ui.session.SessionViewModel
 import net.openmanet.perfapp.ui.theme.StatRow
@@ -42,6 +45,7 @@ import net.openmanet.perfapp.ui.theme.StatusDot
 import net.openmanet.perfapp.ui.theme.TerminalCard
 import net.openmanet.perfapp.ui.theme.TerminalCyan
 import net.openmanet.perfapp.ui.theme.TerminalGreen
+import net.openmanet.perfapp.ui.theme.TerminalOutline
 import net.openmanet.perfapp.ui.theme.TerminalTextSecondary
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -60,10 +64,12 @@ fun DashboardScreen(
     val connectionState by connectionViewModel.state.collectAsStateWithLifecycle()
     val connected = connectionState as? ConnectionState.Connected ?: return
     val uiState by dashboardViewModel.uiState.collectAsStateWithLifecycle()
+    val peerCards by dashboardViewModel.peerCards.collectAsStateWithLifecycle()
     val refreshIntervalMs by dashboardViewModel.refreshIntervalMs.collectAsStateWithLifecycle()
-    val latestGpsFix by dashboardViewModel.latestDeviceGpsFix.collectAsStateWithLifecycle()
+    val latestGpsFix by dashboardViewModel.latestGpsFix.collectAsStateWithLifecycle()
     val activeSessionId by sessionViewModel.activeSessionId.collectAsStateWithLifecycle()
     val pingTargets by sessionViewModel.pingTargets.collectAsStateWithLifecycle()
+    val disabledHostnames by sessionViewModel.disabledHostnames.collectAsStateWithLifecycle()
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -113,7 +119,11 @@ fun DashboardScreen(
 
             MeshPeersCard(uiState)
             LinkQualityCard(uiState, refreshIntervalMs)
-            MeshPeersLiveCard(uiState)
+            PeerNodeCards(
+                peers = peerCards,
+                disabledHostnames = disabledHostnames,
+                onSetDisabled = sessionViewModel::setNodeDisabled,
+            )
             GpsStatusCard(latestGpsFix)
             TestSessionCard(
                 activeSessionId = activeSessionId,
@@ -191,28 +201,113 @@ private fun LinkQualityCard(uiState: DashboardUiState, refreshIntervalMs: Long) 
     }
 }
 
+/**
+ * Active (non-excluded) nodes get a full card; excluded nodes are hidden from the session view
+ * entirely (no stats, no ping row) and collapse into a compact re-enable list underneath, so
+ * they don't clutter the live session but stay reachable to toggle back on.
+ */
 @Composable
-private fun MeshPeersLiveCard(uiState: DashboardUiState) {
-    TerminalCard(title = "Mesh Peers", meta = "Live") {
-        if (uiState.neighbors.isEmpty()) {
+private fun PeerNodeCards(
+    peers: List<NodePeerUiState>,
+    disabledHostnames: Set<String>,
+    onSetDisabled: (hostname: String, disabled: Boolean) -> Unit,
+) {
+    if (peers.isEmpty()) {
+        TerminalCard(title = "Mesh Peers", meta = "Live") {
             Text("No neighbors discovered yet.", color = TerminalTextSecondary)
         }
-        uiState.neighbors.forEach { neighbor -> NeighborRow(neighbor, uiState) }
+        return
+    }
+    val (excluded, active) = peers.partition { it.hostname in disabledHostnames }
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        active.forEach { peer ->
+            NodePeerCard(peer = peer, onExclude = { onSetDisabled(peer.hostname, true) })
+        }
+        if (excluded.isNotEmpty()) {
+            ExcludedNodesCard(excluded, onInclude = { hostname -> onSetDisabled(hostname, false) })
+        }
+    }
+}
+
+/**
+ * One card per active node: name header + exclude toggle, then the node's live API stats, then
+ * its most recent ping result - each section divided, matching the field-ops reference layout.
+ * Excluding a node persists (DisabledNodesRepository), hides it from this session view, and if a
+ * session is currently running, restarts it immediately with the updated target list.
+ */
+@Composable
+private fun NodePeerCard(peer: NodePeerUiState, onExclude: () -> Unit) {
+    TerminalCard(title = peer.hostname, meta = if (peer.isGateway) "Gateway" else null) {
+        Row(
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                "Include in test session",
+                style = MaterialTheme.typography.bodyMedium,
+                color = TerminalTextSecondary,
+            )
+            Switch(checked = true, onCheckedChange = { checked -> if (!checked) onExclude() })
+        }
+
+        StatRow("IP address", peer.ipAddress)
+        StatRow("Hops", peer.hops?.toString() ?: "—")
+        val neighbor = peer.neighbor
+        if (neighbor != null) {
+            StatRow("Signal", "${neighbor.signalStrength} dBm  ·  quality ${neighbor.signal}")
+            StatRow("Throughput", formatBitsPerSecond(neighbor.throughputBps.toLong()))
+            StatRow("Interface", neighbor.interfaceName)
+        } else {
+            Text(
+                "Not a direct neighbor (multi-hop).",
+                color = TerminalTextSecondary,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+        }
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = TerminalOutline)
+
+        PingResultRow(peer.latestPing)
     }
 }
 
 @Composable
-private fun NeighborRow(neighbor: MeshNeighbor, uiState: DashboardUiState) {
-    val hostname = neighbor.neighbor.substringBefore(".")
-    val hops = uiState.hopsByHostname[hostname]
-    Column(modifier = Modifier.padding(vertical = 6.dp)) {
-        Text(neighbor.neighbor, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge)
+private fun ExcludedNodesCard(excluded: List<NodePeerUiState>, onInclude: (hostname: String) -> Unit) {
+    TerminalCard(title = "Excluded", meta = "${excluded.size}") {
+        excluded.forEachIndexed { index, peer ->
+            if (index > 0) HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp), color = TerminalOutline)
+            Row(
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(peer.hostname, style = MaterialTheme.typography.bodyMedium)
+                Switch(checked = false, onCheckedChange = { checked -> if (checked) onInclude(peer.hostname) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun PingResultRow(ping: PingResult?) {
+    if (ping == null) {
+        Text("No ping data yet.", color = TerminalTextSecondary, style = MaterialTheme.typography.bodySmall)
+        return
+    }
+    val timeFormat = remember { SimpleDateFormat("HH:mm:ss", Locale.US) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        StatusDot(active = ping.success, modifier = Modifier.padding(end = 8.dp))
         Text(
-            "${neighbor.hardwareAddress}  ·  hops=${hops ?: "?"}  ·  " +
-                "${formatBitsPerSecond(neighbor.throughputBps.toLong())}  ·  " +
-                "rssi=${neighbor.signalStrength}dBm  ·  signal=${neighbor.signal}",
-            style = MaterialTheme.typography.bodySmall,
+            if (ping.success) "${ping.rttMs?.let { "%.0f".format(it) } ?: "?"} ms" else "TIMEOUT",
+            color = if (ping.success) TerminalGreen else MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Text(
+            "  ·  ${timeFormat.format(Date(ping.timestampMs))}",
             color = TerminalTextSecondary,
+            style = MaterialTheme.typography.bodySmall,
         )
     }
 }
@@ -234,10 +329,17 @@ private fun GpsStatusCard(fix: GpsFix?) {
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
+        StatRow("Source", fix.source.label())
         StatRow("Latitude", "%.5f".format(fix.lat))
         StatRow("Longitude", "%.5f".format(fix.lon))
         fix.altitudeM?.let { StatRow("Altitude", "%.1f m".format(it)) }
     }
+}
+
+private fun GpsSource.label(): String = when (this) {
+    GpsSource.DEVICE -> "Device"
+    GpsSource.COT -> "Multicast (CoT)"
+    GpsSource.NODE_GNSS -> "Node GNSS"
 }
 
 @Composable

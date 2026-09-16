@@ -19,7 +19,12 @@ class NeighborRepository @Inject constructor(
                     signalStrength = neighbor.signalStrength,
                     signal = neighbor.signal,
                     lastSeenMs = neighbor.lastSeen,
-                    throughputBps = neighbor.throughput,
+                    // The proto doc claims `throughput` is already scaled to bit/s ("kbit/s
+                    // scaled up"), but on a real mesh the value is still kbit/s unscaled -
+                    // displaying it as-is under-reported a 400+ Mbps link as "400 Kbps". Scale it
+                    // here so every consumer (dashboard, ping's expected-throughput hint, CSV
+                    // export) works in real bit/s without needing to know about the mismatch.
+                    throughputBps = neighbor.throughput * 1_000,
                     // `interface` is a Kotlin keyword; the generated Java getter still works.
                     interfaceName = neighbor.getInterface(),
                 )

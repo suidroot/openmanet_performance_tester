@@ -14,6 +14,7 @@ import net.openmanet.perfapp.data.dao.PingResultDao
 import net.openmanet.perfapp.data.entities.PingResult
 import net.openmanet.perfapp.rpc.NeighborRepository
 import net.openmanet.perfapp.rpc.NodeRepository
+import net.openmanet.perfapp.rpc.baseHostname
 import javax.inject.Inject
 
 @HiltViewModel
@@ -41,7 +42,7 @@ class PingViewModel @Inject constructor(
                 val neighbors = neighborRepository.listMeshNeighbors(nodeIp).getOrDefault(emptyList())
 
                 _expectedThroughputBpsByHost.value = neighbors.mapNotNull { neighbor ->
-                    val hostname = neighbor.neighbor.substringBefore(".")
+                    val hostname = neighbor.neighbor.baseHostname()
                     hostnameToIp[hostname]?.let { ip -> ip to neighbor.throughputBps }
                 }.toMap()
             }
