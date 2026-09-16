@@ -60,6 +60,55 @@ This app implements it as: `rpc/AuthRepository` (login/logout, plain REST - not 
 for auth - the interceptor covers it. If you add a call to `/auth/*` or a `SetupService` wizard
 endpoint, remember those are unauthenticated by design on the server side.
 
+## Other RPC field quirks confirmed on real hardware
+
+Like the auth situation above, a couple of proto-documented fields don't match what real nodes
+actually send - found by pulling the on-device Room DB (`adb exec-out run-as
+net.openmanet.perfapp cat databases/manet_perf.db`) and inspecting raw values/output rather than
+guessing from the docs:
+
+- **`NodeService.ListNodes`' `Node.hostname` carries a `"_<iface>"` suffix and one entry per
+  active interface on multi-homed nodes** (e.g. `man-gate_wlan0` and `man-gate_vxlan0` for one
+  physical node) - unlike `MeshTopologyService.GetMeshTopology`'s `MeshNode.hostname`, which the
+  proto explicitly documents as already deduplicated to one entry per physical node with the
+  suffix stripped. `rpc/NodeRepository.listNodes()` uses the topology call as ground truth to
+  collapse `ListNodes`' raw entries back to one per node and clean up the hostname; `rpc/
+  Hostnames.kt`'s `String.baseHostname()` is the fallback stripper (interface-name regex) used
+  wherever the topology call isn't available or as a second pass on other hostname-shaped fields
+  (`MeshNeighbor.neighbor`, "hostname.iface"). Without this, both the mesh-peer count and every
+  displayed node name were wrong.
+- **`MeshNeighborService`'s `MeshNeighbor.throughput` is documented as already-scaled bit/s
+  ("kbit/s scaled up") but is actually still kbit/s on real hardware** - a 400+ Mbps link was
+  displaying as "400 Kbps". `rpc/NeighborRepository` scales it ×1,000 when mapping to
+  `MeshNeighbor.throughputBps`, so it holds real bit/s and every consumer (dashboard, ping's
+  expected-throughput hint, CSV export) can trust the field name.
+
+## Ping must bind by local IP, not interface name
+
+`ping/PingRunner` shells out to `/system/bin/ping`. Its first implementation passed `-I <iface>`
+(e.g. `-I wlan0`) to force egress onto the mesh network even if cellular is also active - this
+looked reasonable and compiled fine, but **every ping silently failed** with `ping:
+SO_BINDTODEVICE: Operation not permitted`, recorded as an indistinguishable "timeout" in
+`ping_result.rawOutputLine`. `SO_BINDTODEVICE` needs a privileged capability a normal app UID
+doesn't have; `/system/bin/ping` invoked via `ProcessBuilder` runs as the app's own UID, not root.
+The fix: pass the network's own local IPv4 address instead (`-I 10.41.0.123`, from
+`LinkProperties.linkAddresses`) - ping's `-I` accepts either an interface name *or* a source
+address, and a source-address `bind()` is unprivileged. Confirmed directly against the app's own
+UID with `adb shell run-as net.openmanet.perfapp /system/bin/ping ...` before and after. If ping
+ever silently "times out" against a host another tool can reach, check
+`ping_result.rawOutputLine` (pull the DB the same way) before assuming it's a routing problem.
+
+## Session target selection
+
+`ui/session/SessionViewModel` builds each session's ping-target list from
+`NodeRepository.listNodes()` (deduplicated, clean hostnames - see above), filtered against
+`settings/DisabledNodesRepository` (DataStore, keyed by base hostname) - the dashboard's per-node
+"Include in test session" switch writes there. If a session is already running when a node's
+switch flips, `SessionViewModel.setNodeDisabled` stops and immediately restarts the
+`TestSessionService` with the recomputed target list (a new `sessionId`) rather than trying to
+cancel one target's ping job in place - simpler, and consistent with `TestSessionService` already
+only supporting one session at a time.
+
 ## The app does not manage Wi-Fi
 
 Earlier iterations of this app used `WifiNetworkSpecifier` to join the mesh SSID programmatically.
@@ -109,7 +158,14 @@ node itself.
 Most of this app's correctness (real mesh connectivity, GPS fixes, ping routing, iperf3 against a
 real server, CoT multicast) genuinely requires a physical device on real OpenManet hardware - unit
 tests cover the pure logic (output parsers, CSV formatting, the connection state machine) but
-can't substitute for on-device testing. When diagnosing a device-only bug, `adb logcat` plus
-`adb shell curl ...` (curl and nc are both present in `/system/bin` on stock Android/AOSP images)
-are the fastest way to distinguish "the app is wrong" from "the node is doing something the docs
-didn't mention" - see the auth section above for an example where that distinction mattered.
+can't substitute for on-device testing. When diagnosing a device-only bug:
+
+- `adb logcat` plus `adb shell curl ...` (curl and nc are both present in `/system/bin` on stock
+  Android/AOSP images) are the fastest way to distinguish "the app is wrong" from "the node is
+  doing something the docs didn't mention" - see the auth section above for an example.
+- For a bug in stored data (e.g. "ping shows timeout but it should work"), pull the app's Room DB
+  and read the raw values/output directly rather than guessing:
+  `adb exec-out run-as net.openmanet.perfapp cat databases/manet_perf.db > local.db`, then query
+  it with a local `sqlite3` (the on-device shell doesn't have one). This is what found the ping
+  `SO_BINDTODEVICE` bug above - `rawOutputLine` had the real error, and "timeout" alone wouldn't
+  have.

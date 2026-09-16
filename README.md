@@ -9,6 +9,14 @@ The app does **not** manage Wi-Fi. You join the mesh SSID yourself via Android's
 settings before opening the app; the app only talks to the node once you're already on its
 network.
 
+## Screenshot
+
+<img src="docs/screenshots/dashboard.png" alt="Dashboard showing mesh peers, link quality, and a per-node card with live stats and ping result" width="360">
+
+The dashboard's mesh-peers section: an aggregate summary card, then one card per discovered node
+with its live API stats (hops, signal, throughput, interface) and its most recent ping result. A
+switch on each card includes/excludes that node from the current test session.
+
 ## Requirements
 
 - Android Studio (or the command-line tools below) with:
@@ -39,14 +47,16 @@ Single-module Compose app, packages organized by feature:
 ```
 app/src/main/java/net/openmanet/perfapp/
   connectivity/   node-address entry, default-gateway detection (no Wi-Fi management)
-  rpc/            Connect-RPC client to openmanetd, one repository per service, real auth
+  auth/           encrypted per-node credential storage (EncryptedSharedPreferences)
+  rpc/            Connect-RPC client to openmanetd, one repository per service, real auth,
+                  node-identity dedup/hostname cleanup (Hostnames.kt)
   ping/           ICMP ping via /system/bin/ping subprocess (no root required)
   cot/            Cursor-on-Target UDP multicast listener (239.2.3.1:6969)
   gps/            device GPS (FusedLocationProviderClient) + CoT fix merging
   iperf/          iperf3 subprocess bridge (vendored native binaries) + output parser
   session/        foreground service coordinating ping/GPS/CoT for a test run
   data/           Room entities/DAOs/database, CSV export, upload
-  settings/       app settings persisted via DataStore (e.g. dashboard refresh interval)
+  settings/       app settings persisted via DataStore (refresh interval, disabled nodes)
   ui/             one package per screen, plus nav/ for the NavHost and shared ViewModels
 ```
 
