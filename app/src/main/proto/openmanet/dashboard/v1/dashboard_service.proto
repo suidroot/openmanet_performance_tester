@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package openmanet.dashboard.v1;
+
+import "google/protobuf/empty.proto";
+import "openmanet/dashboard/v1/dashboard.proto";
+
+// DashboardService provides a single consolidated view of device status and
+// system health, plus quick administrative actions.
+service DashboardService {
+  // GetDashboardStatus returns all data needed to render the dashboard UI
+  // in a single round-trip.
+  rpc GetDashboardStatus(google.protobuf.Empty) returns (GetDashboardStatusResponse);
+
+  // ExecuteQuickAction performs an administrative action such as rebooting
+  // the device or restarting a service.
+  rpc ExecuteQuickAction(ExecuteQuickActionRequest) returns (ExecuteQuickActionResponse);
+}

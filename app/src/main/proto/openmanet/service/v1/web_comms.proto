@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package openmanet.service.v1;
+
+// WebCommsService provides streaming RPC methods for web-based audio
+// communication with the OpenMANET mesh. A web client replaces the hardware
+// PTT device and PortAudio I/O, exchanging Opus-encoded audio frames and PTT
+// events over connect-rpc.
+service WebCommsService {
+  option deprecated = true;
+  // SendPTTEvent sends a PTT state change from the web client.
+  rpc SendPTTEvent(SendPTTEventRequest) returns (SendPTTEventResponse);
+
+  // StreamAudioTx is a client-streaming RPC: the web client streams
+  // Opus-encoded audio frames to the server for transmission to the mesh.
+  // The server returns a summary when the client closes the stream.
+  rpc StreamAudioTx(stream StreamAudioTxRequest) returns (StreamAudioTxResponse);
+
+  // StreamAudioRx is a server-streaming RPC: the server streams
+  // Opus-encoded audio frames received from the mesh back to the web client.
+  rpc StreamAudioRx(StreamAudioRxRequest) returns (stream StreamAudioRxResponse);
+}
+
+// SendPTTEventRequest carries a PTT state change from the web client.
+message SendPTTEventRequest {
+  option deprecated = true;
+  // PTT event type: 0 = PTTDown (begin TX), 1 = PTTUp (end TX),
+  // 2 = PTTToggle (toggle TX state).
+  int32 event = 1;
+}
+
+// SendPTTEventResponse is returned after a SendPTTEvent request.
+message SendPTTEventResponse {
+  option deprecated = true;
+  // Whether the PTT event was successfully delivered.
+  bool success = 1;
+}
+
+// StreamAudioTxRequest carries a single Opus-encoded audio frame (48 kHz,
+// mono, 20 ms) from the web client to the server for mesh transmission.
+message StreamAudioTxRequest {
+  option deprecated = true;
+  // Raw Opus-encoded frame bytes.
+  bytes opus_data = 1;
+
+  // Monotonic sequence number for ordering and loss detection.
+  uint32 sequence = 2;
+}
+
+// StreamAudioRxResponse carries a single Opus-encoded audio frame (48 kHz,
+// mono, 20 ms) from the server to the web client.
+message StreamAudioRxResponse {
+  option deprecated = true;
+  // Raw Opus-encoded frame bytes.
+  bytes opus_data = 1;
+
+  // Monotonic sequence number for ordering and loss detection.
+  uint32 sequence = 2;
+}
+
+// StreamAudioTxResponse is returned when the client closes the TX stream.
+message StreamAudioTxResponse {
+  option deprecated = true;
+  // Total number of audio frames received from the client.
+  uint32 frames_received = 1;
+}
+
+// StreamAudioRxRequest initiates a server-streaming RX audio session.
+message StreamAudioRxRequest {
+  option deprecated = true;
+}

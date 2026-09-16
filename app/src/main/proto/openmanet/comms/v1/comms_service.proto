@@ -1,0 +1,90 @@
+syntax = "proto3";
+
+package openmanet.comms.v1;
+
+import "google/protobuf/empty.proto";
+import "openmanet/comms/v1/comms.proto";
+import "openmanet/comms/v1/config.proto";
+import "openmanet/comms/v1/status.proto";
+import "openmanet/comms/v1/talkgroup.proto";
+
+// CommsService exposes control and real-time audio APIs between web clients
+// and the OpenMANET communications subsystem.
+//
+// It provides:
+// - status inspection for current comms state,
+// - talkgroup transmit/receive enablement control,
+// - push-to-talk (PTT) event signaling,
+// - uplink audio streaming from web client to mesh,
+// - downlink audio streaming from mesh to web client.
+//
+// Unless otherwise specified by individual RPCs, methods are unary and should
+// return standard gRPC error codes for invalid requests, unavailable backend
+// components, or internal processing failures.
+
+// GetCommsStatus returns a snapshot of current communication state, including
+// active configuration and runtime indicators needed by clients to render UI
+// and make control decisions.
+
+// SetSendTalkGroup enables or disables outbound RTP transmission for a specific
+// talkgroup. This controls whether locally sourced audio is sent to the mesh
+// on that talkgroup.
+
+// SetReceiveTalkGroup enables or disables inbound RTP reception for a specific
+// talkgroup. This controls whether audio from the mesh is accepted/processed
+// for that talkgroup.
+
+// SendPTTEvent submits a client-originated push-to-talk state transition
+// (for example, pressed/released) so the server can update transmit behavior.
+
+// StreamAudioTx accepts a client stream of Opus-encoded audio frames intended
+// for mesh transmission. The client sends zero or more frames, then closes the
+// stream; the server responds once with a transmission summary/result.
+
+// StreamAudioRx establishes a server stream of Opus-encoded audio frames coming
+// from the mesh to the client. The stream remains open until canceled, closed,
+// or terminated due to error/availability conditions.
+service CommsService {
+  // Retrieves the current communications settings
+  rpc GetCommsConfig(google.protobuf.Empty) returns (GetCommsConfigResponse);
+
+  // Updates the communication settings for the OpenMANET service.
+  rpc UpdateCommsConfig(UpdateCommsConfigRequest) returns (UpdateCommsConfigResponse);
+
+  // Retrieves the current communication status of the OpenMANET service.
+  rpc GetCommsStatus(google.protobuf.Empty) returns (GetCommsStatusResponse);
+
+  // Enables or disables RTP transmission on the specified talkgroup.
+  rpc SetSendTalkGroup(SetSendTalkGroupRequest) returns (SetSendTalkGroupResponse);
+
+  // Enables or disables RTP reception on the specified talkgroup.
+  rpc SetReceiveTalkGroup(SetReceiveTalkGroupRequest) returns (SetReceiveTalkGroupResponse);
+
+  // SelectTalkGroup makes the requested talk group the single active
+  // channel: RX+TX enabled on it, all other groups disabled.
+  rpc SelectTalkGroup(SelectTalkGroupRequest) returns (SelectTalkGroupResponse);
+
+  // StreamTalkGroupEvents streams talk group selection and direction
+  // toggle changes to the client.
+  rpc StreamTalkGroupEvents(google.protobuf.Empty) returns (stream StreamTalkGroupEventsResponse);
+
+  // SendPTTEvent sends a PTT state change from the web client.
+  rpc SendPTTEvent(SendPTTEventRequest) returns (SendPTTEventResponse);
+
+  // StreamAudioTx is a client-streaming RPC: the web client streams
+  // Opus-encoded audio frames to the server for transmission to the mesh.
+  // The server returns a summary when the client closes the stream.
+  rpc StreamAudioTx(stream StreamAudioTxRequest) returns (StreamAudioTxResponse);
+
+  // StreamAudioRx is a server-streaming RPC: the server streams
+  // Opus-encoded audio frames received from the mesh back to the web client.
+  rpc StreamAudioRx(StreamAudioRxRequest) returns (stream StreamAudioRxResponse);
+
+  // Reads the device's hardware audio mixer state. Never fails on a
+  // missing sound card — available=false is the "no card" signal.
+  rpc GetAudioMixer(google.protobuf.Empty) returns (GetAudioMixerResponse);
+
+  // Applies the provided fields to the hardware mixer and persists
+  // volumes and AGC so the levels survive a reboot.
+  rpc UpdateAudioMixer(UpdateAudioMixerRequest) returns (UpdateAudioMixerResponse);
+}

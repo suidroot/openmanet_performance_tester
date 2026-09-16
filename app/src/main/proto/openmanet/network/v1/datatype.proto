@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package openmanet.network.v1;
+
+// We use batman-adv alfred data types to represent different OpenMANET data types
+// sent across the mesh. This allows us to leverage existing infrastructure for
+// distributing and storing mesh data.
+// See: https://www.open-mesh.org/projects/alfred/wiki/Alfred_architecture
+enum DataType {
+  DATA_TYPE_UNSPECIFIED = 0;
+
+  /*
+     Gateway data type
+  */
+  DATA_TYPE_GATEWAY = 100;
+
+  /*
+     Address Reservation data type
+  */
+  DATA_TYPE_ADDRESS_RESERVATION = 101 [deprecated = true];
+
+  /*
+     Node data type
+  */
+  DATA_TYPE_NODE = 102;
+
+  /*
+     Mesh neighbors data type. Published by every node every 15 s.
+     Payload: openmanet.network.v1.MeshNeighbors (see mesh_neighbors.proto).
+     Consumed by the serving node's mesh topology handler to classify
+     vxlan0-reached peers into the physical mesh of whichever publisher
+     hears them on a non-vxlan interface.
+  */
+  DATA_TYPE_MESH_NEIGHBORS = 103;
+}

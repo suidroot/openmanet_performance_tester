@@ -1,0 +1,18 @@
+version: v2
+managed:
+  enabled: true
+  disable:
+    # This file sets its own java_package (build.buf.validate); managed mode's "com." prefix
+    # rewrite would otherwise clobber it and break every file that imports it for field options.
+    - path: buf/validate/validate.proto
+inputs:
+  - directory: app/src/main/proto
+plugins:
+  - protoc_builtin: java
+    protoc_path: /opt/homebrew/bin/protoc
+    out: app/src/main/kotlin-gen
+  - protoc_builtin: kotlin
+    protoc_path: /opt/homebrew/bin/protoc
+    out: app/src/main/kotlin-gen
+  - local: .tools/protoc-gen-connect-kotlin
+    out: app/src/main/kotlin-gen

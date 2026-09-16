@@ -1,0 +1,238 @@
+syntax = "proto3";
+
+package openmanet.sysupgrade.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "openmanet/sysupgrade/v1/sysupgrade.proto";
+
+// SysupgradeService exposes firmware upgrade discovery and execution to
+// the operator UI. All RPCs are unary except StreamUpgradeProgress.
+//
+// The intended workflow is:
+//   1. GetSystemInfo() to confirm the device is sysupgrade-capable and to
+//      identify the hardware (target + board_name).
+//   2. ListAvailableUpdates() to query GitHub for releases newer than
+//      the running firmware that have a matching asset for the local
+//      hardware. The first call (or any call with force_refresh=true)
+//      hits the GitHub API; subsequent calls serve the on-disk cache.
+//   3. (Optional) GetReleaseDetail() to fetch full release notes.
+//   4. StartUpgrade() to begin the asynchronous Download → Verify →
+//      Exec sequence. The call returns immediately; progress is
+//      observed via StreamUpgradeProgress() (preferred) or
+//      GetUpgradeStatus() polling.
+//   5. CancelUpgrade() before the sysupgrade binary is exec'd, if the
+//      operator changes their mind.
+//
+// Error codes:
+//   - InvalidArgument:    malformed request, mutually exclusive options.
+//   - FailedPrecondition: device not capable, no matching asset, etc.
+//   - DataLoss:           sha256 verification failed.
+//   - Unavailable:        GitHub fetch failed (network error or rate limit).
+//   - Internal:           local I/O or unexpected runtime error.
+service SysupgradeService {
+  // GetSystemInfo returns the running system metadata required to
+  // decide whether sysupgrade is possible and which firmware image
+  // matches the local hardware.
+  rpc GetSystemInfo(google.protobuf.Empty) returns (GetSystemInfoResponse);
+
+  // ListAvailableUpdates returns releases newer than the currently
+  // installed version that have an asset matching the local hardware.
+  // When force_refresh is true the GitHub API is contacted; otherwise
+  // the on-disk cache is used.
+  rpc ListAvailableUpdates(ListAvailableUpdatesRequest) returns (ListAvailableUpdatesResponse);
+
+  // GetReleaseDetail returns one release by tag, including the full
+  // release notes body. Reads from the cache populated by
+  // ListAvailableUpdates.
+  rpc GetReleaseDetail(GetReleaseDetailRequest) returns (GetReleaseDetailResponse);
+
+  // StartUpgrade kicks off the Download → Verify → Exec sequence. The
+  // call returns as soon as the in-flight goroutine is spawned. Errors
+  // returned here are preflight (busy, unknown current version,
+  // invalid options); all later errors arrive via the progress stream.
+  rpc StartUpgrade(StartUpgradeRequest) returns (StartUpgradeResponse);
+
+  // CancelUpgrade aborts an in-flight upgrade before sysupgrade has
+  // been exec'd. Returns FailedPrecondition once the binary has been
+  // launched.
+  rpc CancelUpgrade(google.protobuf.Empty) returns (CancelUpgradeResponse);
+
+  // GetUpgradeStatus returns a snapshot of the current upgrade state.
+  // Suitable for clients that cannot use StreamUpgradeProgress.
+  rpc GetUpgradeStatus(google.protobuf.Empty) returns (GetUpgradeStatusResponse);
+
+  // StreamUpgradeProgress streams progress events. The server emits the
+  // current snapshot first, then every state change until the client
+  // disconnects.
+  rpc StreamUpgradeProgress(google.protobuf.Empty) returns (stream StreamUpgradeProgressResponse);
+
+  // GetStagedImage returns metadata for the currently-staged uploaded
+  // image, if any. The image bytes themselves are uploaded out-of-band
+  // via POST /api/sysupgrade/upload (multipart/form-data).
+  rpc GetStagedImage(google.protobuf.Empty) returns (GetStagedImageResponse);
+
+  // DiscardStagedImage deletes the currently-staged image and clears
+  // its metadata. No-op when no image is staged.
+  rpc DiscardStagedImage(google.protobuf.Empty) returns (DiscardStagedImageResponse);
+
+  // StartLocalUpgrade kicks off the Verify → Exec sequence using the
+  // currently-staged uploaded image as the source. The download phase
+  // is skipped. Returns FailedPrecondition when no image is staged or
+  // an upgrade is already running.
+  rpc StartLocalUpgrade(StartLocalUpgradeRequest) returns (StartLocalUpgradeResponse);
+
+  // GetFactoryResetCapability reports whether the running OS supports
+  // factory reset (overlay wipe + reboot, equivalent to LuCI's
+  // "Perform Reset" button) and surfaces the device's current
+  // hostname so the UI can use it as the typed-confirmation target.
+  rpc GetFactoryResetCapability(google.protobuf.Empty) returns (GetFactoryResetCapabilityResponse);
+
+  // PerformFactoryReset wipes the overlay and reboots the device. The
+  // operator must echo the device hostname in confirm_hostname; the
+  // server re-validates the match before triggering. Fire-and-forget:
+  // the RPC response may not flush before the kernel reboots, so
+  // clients must treat both 200 OK and a transport-closed error as
+  // "reset initiated." Returns FailedPrecondition when the device is
+  // not capable, when an upgrade is in progress, or when hostname is
+  // unknown; InvalidArgument when confirm_hostname does not match.
+  rpc PerformFactoryReset(PerformFactoryResetRequest) returns (PerformFactoryResetResponse);
+}
+
+// GetSystemInfoResponse wraps a SystemInfo so future fields can be added
+// alongside it without changing the RPC return type.
+message GetSystemInfoResponse {
+  SystemInfo info = 1;
+}
+
+// ListAvailableUpdatesRequest controls release discovery.
+message ListAvailableUpdatesRequest {
+  // ForceRefresh true causes the manager to fetch the GitHub releases
+  // index. False serves the on-disk cache when populated.
+  bool force_refresh = 1;
+
+  // IncludePrerelease true keeps GitHub-flagged pre-releases in the
+  // result set. False (the default) omits them.
+  bool include_prerelease = 2;
+}
+
+// ListAvailableUpdatesResponse carries the filtered list of upgrades.
+message ListAvailableUpdatesResponse {
+  // Updates is in descending order by release version (newest first).
+  repeated Update updates = 1;
+
+  // FetchedAt is when the underlying release list was last fetched
+  // from GitHub.
+  google.protobuf.Timestamp fetched_at = 2;
+}
+
+// GetReleaseDetailRequest selects a release by tag.
+message GetReleaseDetailRequest {
+  // Tag is the release tag, e.g. "v1.8.0". Validated as a semver-shaped
+  // string with an optional leading "v".
+  string tag = 1 [
+    (buf.validate.field).string.pattern = "^v?\\d+\\.\\d+\\.\\d+(?:[-.][0-9A-Za-z.-]+)?$",
+    (buf.validate.field).string.max_len = 64
+  ];
+}
+
+// GetReleaseDetailResponse returns the full Release.
+message GetReleaseDetailResponse {
+  Release release = 1;
+}
+
+// StartUpgradeRequest selects a release+asset and the sysupgrade flags.
+message StartUpgradeRequest {
+  // ReleaseTag identifies the release to install.
+  string release_tag = 1 [
+    (buf.validate.field).string.pattern = "^v?\\d+\\.\\d+\\.\\d+(?:[-.][0-9A-Za-z.-]+)?$",
+    (buf.validate.field).string.max_len = 64
+  ];
+
+  // AssetName is the filename within the release to download.
+  string asset_name = 2 [(buf.validate.field).string.max_len = 256];
+
+  // Options controls the sysupgrade(1) flags.
+  SysupgradeOptions options = 3;
+
+  // ForceInstallUnknownCurrent true permits installation when the
+  // current OpenMANET version cannot be parsed from /etc/openwrt_release
+  // (for recovery scenarios).
+  bool force_install_unknown_current = 4;
+}
+
+// StartUpgradeResponse is empty — progress arrives via the stream.
+message StartUpgradeResponse {}
+
+// CancelUpgradeResponse is empty.
+message CancelUpgradeResponse {}
+
+// GetUpgradeStatusResponse wraps the ProgressEvent so future scalar
+// fields can be added alongside it without breaking callers.
+message GetUpgradeStatusResponse {
+  ProgressEvent event = 1;
+}
+
+// StreamUpgradeProgressResponse wraps the ProgressEvent so the stream
+// frame type is distinct from the unary GetUpgradeStatus response.
+message StreamUpgradeProgressResponse {
+  ProgressEvent event = 1;
+}
+
+// GetStagedImageResponse carries the StagedImage metadata. The image
+// field is unset when no image is currently staged.
+message GetStagedImageResponse {
+  StagedImage image = 1;
+}
+
+// DiscardStagedImageResponse is empty.
+message DiscardStagedImageResponse {}
+
+// StartLocalUpgradeRequest selects the install options for the
+// currently-staged uploaded image.
+message StartLocalUpgradeRequest {
+  // Options controls the sysupgrade(1) flags.
+  SysupgradeOptions options = 1;
+
+  // ForceInstallUnknownCurrent true permits installation when the
+  // current OpenMANET version cannot be parsed from /etc/openwrt_release.
+  bool force_install_unknown_current = 2;
+
+  // SkipPreflight true bypasses the requirement that the upload-time
+  // "sysupgrade -T" preflight succeeded. Operators set this when they
+  // know the staged image is correct despite a failed preflight (for
+  // example when flashing across an architecture rename).
+  bool skip_preflight = 3;
+}
+
+// StartLocalUpgradeResponse is empty — progress arrives via the
+// existing StreamUpgradeProgress RPC.
+message StartLocalUpgradeResponse {}
+
+// GetFactoryResetCapabilityResponse wraps the FactoryResetCapability so
+// future scalar fields can be added alongside it without breaking the
+// RPC.
+message GetFactoryResetCapabilityResponse {
+  FactoryResetCapability capability = 1;
+}
+
+// PerformFactoryResetRequest carries the typed-confirmation hostname.
+// The server re-validates the match against /etc/hostname before
+// triggering the wipe — UI-side validation alone is not sufficient.
+message PerformFactoryResetRequest {
+  // ConfirmHostname must equal the device's current hostname after
+  // trim + lowercase on both sides. Acts as a "type the device name
+  // to delete" guard, deliberately stronger than LuCI's single
+  // confirm() dialog.
+  string confirm_hostname = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.max_len = 253
+  ];
+}
+
+// PerformFactoryResetResponse is empty. The response may never flush
+// to the client because firstboot reboots the device synchronously;
+// callers should treat a transport-closed error after >2s as "reset
+// initiated" rather than as a true failure.
+message PerformFactoryResetResponse {}

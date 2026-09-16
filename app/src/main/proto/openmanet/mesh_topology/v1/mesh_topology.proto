@@ -1,0 +1,149 @@
+syntax = "proto3";
+
+package openmanet.mesh_topology.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// MeshNode is one physical node in the mesh, as reported by alfred /
+// batadv-vis -f jsondoc and enriched with /tmp/bat-hosts metadata plus
+// self-originator overlay data.
+message MeshNode {
+  // mac is the node's primary MAC (its bat0 address from the vis payload).
+  string mac = 1;
+
+  // secondary_macs are the other MACs this node publishes (one per extra
+  // hard interface). Kept so edges keyed on a secondary MAC can be
+  // resolved back to a single MeshNode.
+  repeated string secondary_macs = 2;
+
+  // hostname is the node's base hostname from /tmp/bat-hosts, with the
+  // "_<iface>" suffix stripped. Empty when bat-hosts has no entry.
+  string hostname = 3;
+
+  // segment is the rendering segment this node belongs to from the
+  // serving node's point of view: "local" when the serving node reaches
+  // it over a non-vxlan0 interface, "remote" when the best route is
+  // over vxlan0 (BLOS). Always "local" for the serving node itself.
+  string segment = 4;
+
+  reserved 5;
+  reserved "client_count";
+
+  // hops_from_self is the number of forwarding hops from the serving
+  // node to this node, as derived from the serving node's originator
+  // table. 0 for the serving node itself; 99 for "unknown".
+  int32 hops_from_self = 6;
+
+  // my_hard_ifname is the local interface the serving node uses to
+  // reach this node (e.g. "wlan0", "vxlan0"). Empty when the serving
+  // node has no route to this node in its originator table.
+  string my_hard_ifname = 7;
+
+  // is_self is true when this node is the serving node.
+  bool is_self = 8;
+
+  // remote_gateway_mac is the MAC of the direct BLOS neighbor (vxlan0)
+  // through which the serving node reaches this remote node. Empty for
+  // local-segment nodes. Remote nodes sharing the same gateway form one
+  // remote mesh segment in the UI; distinct gateways produce distinct
+  // segments.
+  string remote_gateway_mac = 9;
+
+  // gossip_stale is true when the mesh-neighbors gossip record for this
+  // node has not been refreshed within the snapshotter's StaleAge
+  // window, or when no gossip record exists at all. The UI dims stale
+  // hosts to signal that their topology data is aging.
+  bool gossip_stale = 10;
+
+  // gossip_age_seconds is the age (in whole seconds) of the publisher's
+  // most recent gossip record for this node — the delta between the
+  // serving node's "now" and the payload's collected_at. -1 when no
+  // record exists or the publisher did not timestamp the payload. Unset
+  // (0) for self, which is always current.
+  int32 gossip_age_seconds = 11;
+
+  // is_gateway is true when this node terminates a BLOS tunnel (vxlan0)
+  // for the rest of the mesh. Set for any peer batman-adv announces in
+  // the gateway list (`batctl gwj`) AND for any local-segment peer
+  // whose gossip reports vxlan0 neighbors that classify as remote.
+  // The UI surfaces this as a "GATEWAY" role label and uses it to
+  // anchor BLOS edges through the gateway rather than directly from
+  // the serving node when the broadcast overlay would otherwise hide
+  // the real bridging node.
+  bool is_gateway = 12;
+}
+
+// MeshEdge is one link in the mesh, canonicalized so A↔B appears once
+// regardless of whether vis reported it from A's or B's perspective.
+message MeshEdge {
+  // from_mac is the lexically-smaller endpoint MAC (lowercased).
+  string from_mac = 1;
+
+  // to_mac is the lexically-larger endpoint MAC (lowercased).
+  string to_mac = 2;
+
+  // metric is the raw link metric reported by vis. For BATMAN_IV this
+  // is 255/TQ (lower is better). For BATMAN_V it is throughput-derived
+  // (see the algorithm field on the enclosing MeshTopology). Zero when
+  // vis emitted no parseable metric.
+  double metric = 3;
+
+  // blos is true when the two endpoints sit in different segments —
+  // i.e. the edge bridges a BLOS (vxlan0) tunnel.
+  bool blos = 4;
+
+  // on_my_path is true when this edge appears as (orig, best_next_hop)
+  // in the serving node's originator table — i.e. the serving node
+  // forwards traffic over this link.
+  bool on_my_path = 5;
+}
+
+// MeshTopology is the full mesh graph: every reachable node's neighbor
+// set as published to alfred by every node's batadv-vis -s, enriched
+// with bat-hosts hostnames and the serving node's own routing overlay.
+message MeshTopology {
+  // self_mac is the MAC of the serving node's bat0 interface. Empty
+  // when the interface is not yet present (batman-adv module loading).
+  string self_mac = 1;
+
+  // self_hostname is the base hostname of the serving node — its
+  // bat-hosts entry with the "_bat0" suffix stripped. Empty when
+  // bat-hosts has no entry for self_mac.
+  string self_hostname = 2;
+
+  // algorithm is the batman-adv routing algorithm as reported by
+  // batadv-vis: "BATMAN_IV" for code 4, "BATMAN_V" for code 15, empty
+  // otherwise. Determines how the per-edge metric field should be
+  // formatted in the UI.
+  string algorithm = 3;
+
+  // nodes is the set of physical mesh nodes — one entry per primary
+  // MAC. Sorted (is_self desc, hostname asc) for stable rendering.
+  repeated MeshNode nodes = 4;
+
+  // edges is the canonical set of mesh links. Sorted (blos asc,
+  // from_mac asc, to_mac asc) for stable rendering.
+  repeated MeshEdge edges = 5;
+
+  // collected_at is the wall-clock time the snapshot was produced on
+  // the serving node.
+  google.protobuf.Timestamp collected_at = 6;
+
+  // gossip_coverage reports how many mesh members are currently
+  // publishing MeshNeighbors gossip. Lets the UI show a "GOSSIP N/M"
+  // badge so operators can spot partial coverage.
+  GossipCoverage gossip_coverage = 7;
+}
+
+// GossipCoverage summarizes MeshNeighbors gossip participation across
+// the mesh at the serving node's most recent refresh.
+message GossipCoverage {
+  // published is the number of primary MACs for which a gossip record
+  // was present and not stale.
+  int32 published = 1;
+
+  // total is the number of primary MACs the serving node is aware of
+  // (from vis + originators). When published == total every mesh
+  // member is participating.
+  int32 total = 2;
+}

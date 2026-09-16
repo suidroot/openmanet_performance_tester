@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package openmanet.logs.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+// LogsService exposes OpenWRT system-log and kernel-ring-buffer contents so
+// operators can triage issues from the web UI without an SSH session. The
+// service wraps busybox applets (logread, dmesg) and never interprets the
+// log content — every line is returned verbatim.
+service LogsService {
+  // GetLogs returns the most-recent lines from the requested source. When
+  // the source binary is not installed on the host (e.g. the dev
+  // container), the handler returns CodeFailedPrecondition so the UI can
+  // render a clean "source unavailable" banner rather than an empty view.
+  // Unexpected failures return CodeInternal.
+  rpc GetLogs(GetLogsRequest) returns (GetLogsResponse) {}
+}
+
+// LogSource selects which underlying source is queried.
+enum LogSource {
+  // LOG_SOURCE_UNSPECIFIED is the default zero value and is rejected by
+  // the validator. Clients must set a specific source.
+  LOG_SOURCE_UNSPECIFIED = 0;
+
+  // LOG_SOURCE_LOGREAD is the OpenWRT system log (busybox logread). On
+  // OpenWRT this is the logd ring buffer that aggregates syslog traffic.
+  LOG_SOURCE_LOGREAD = 1;
+
+  // LOG_SOURCE_DMESG is the kernel ring buffer (busybox dmesg). Returns
+  // kernel boot messages, driver probes, and kernel-level events.
+  LOG_SOURCE_DMESG = 2;
+}
+
+// GetLogsRequest selects a source and caps the response size.
+message GetLogsRequest {
+  // source is the log source to read. Required.
+  LogSource source = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+
+  // max_lines bounds how many most-recent lines the server returns.
+  // Bounded to [1, 5000] to keep response payloads manageable on
+  // resource-constrained devices.
+  uint32 max_lines = 2 [(buf.validate.field).uint32 = {
+    gte: 1
+    lte: 5000
+  }];
+}
+
+// LogLine wraps a single log line. A message (rather than a repeated
+// string) leaves room to add parsed fields (severity, facility, ts)
+// without a breaking change.
+message LogLine {
+  // raw is the full line as emitted by the source, trimmed of trailing
+  // newlines. Never parsed or redacted by the server.
+  string raw = 1;
+}
+
+// GetLogsResponse returns up to max_lines lines, ordered oldest-first so
+// the UI can render with the most recent entries at the bottom.
+message GetLogsResponse {
+  // lines is the (up to max_lines) most-recent lines, oldest-first.
+  repeated LogLine lines = 1;
+
+  // collected_at is the server timestamp when the source was read.
+  google.protobuf.Timestamp collected_at = 2;
+
+  // truncated is true when the source emitted more than max_lines lines
+  // and the server dropped the older ones to honour the cap.
+  bool truncated = 3;
+}

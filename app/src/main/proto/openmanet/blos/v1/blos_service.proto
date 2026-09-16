@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package openmanet.blos.v1;
+
+import "google/protobuf/empty.proto";
+import "openmanet/blos/v1/blos.proto";
+
+// BLOSService provides methods to manage and retrieve the status of the
+// Beyond Line of Sight (BLOS) subsystem within the OpenMANET system.
+service BLOSService {
+  // GetBLOSStatus retrieves the current status of the BLOS subsystem,
+  // including whether it is enabled, tunnel identity, DERP state,
+  // aggregated counters, and overlay-network policy.
+  rpc GetBLOSStatus(google.protobuf.Empty) returns (GetBLOSStatusResponse) {}
+
+  // UpdateBLOSConfig updates the configuration of the BLOS subsystem,
+  // including enabling or disabling it and setting authentication keys.
+  rpc UpdateBLOSConfig(UpdateBLOSConfigRequest) returns (UpdateBLOSConfigResponse) {}
+
+  // ListBLOSPeers returns the remote nodes visible on the Tailscale
+  // overlay as a single snapshot. Returns an empty list when BLOS is
+  // disabled or the backend is not yet running (never an error for those
+  // cases). Returns CodeInternal for unexpected status failures.
+  rpc ListBLOSPeers(google.protobuf.Empty) returns (ListBLOSPeersResponse) {}
+
+  // StreamBLOSEvents streams BLOS state-change events to the client
+  // until the client disconnects or the daemon shuts down. Event
+  // generation is best-effort: if the server's outbound buffer fills
+  // (slow client) the daemon drops events and increments the
+  // events_dropped counter in the BLOS instrumentation snapshot. The
+  // stream emits a periodic BLOS_EVENT_KIND_KEEPALIVE so clients can
+  // detect silent disconnects. Each emission is wrapped in a
+  // StreamBLOSEventsResponse envelope (which contains the BLOSEvent).
+  rpc StreamBLOSEvents(google.protobuf.Empty) returns (stream StreamBLOSEventsResponse) {}
+}

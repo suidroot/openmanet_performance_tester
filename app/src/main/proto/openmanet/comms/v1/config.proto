@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package openmanet.comms.v1;
+
+import "buf/validate/validate.proto";
+import "openmanet/common/v1/options.proto";
+
+enum ControlSource {
+  CONTROL_SOURCE_UNSPECIFIED = 0;
+
+  CONTROL_SOURCE_OPENVLM = 1 [(openmanet.common.v1.string_name) = "openvlm"];
+
+  CONTROL_SOURCE_NANOPTT = 2 [(openmanet.common.v1.string_name) = "nanoptt"];
+
+  CONTROL_SOURCE_WEB = 3 [(openmanet.common.v1.string_name) = "web"];
+}
+
+// GetCommsConfigResponse is used to request the current communications configuration.
+message GetCommsConfigResponse {
+  // Whether the comms subsystem is currently enabled.
+  bool comms_enabled = 1;
+  // The source of control for the comms subsystem.
+  ControlSource control_source = 2;
+  // Operator callsign attached to outgoing RTP packets (max 12 ASCII characters).
+  string callsign = 3 [(buf.validate.field).string.max_len = 12];
+}
+
+// UpdateCommsConfigRequest is used to update the communications configuration.
+message UpdateCommsConfigRequest {
+  // Whether to enable or disable the comms subsystem.
+  bool enable_comms = 1;
+  // The source of control for the comms subsystem.
+  ControlSource control_source = 2;
+  // Operator callsign attached to outgoing RTP packets (max 12 ASCII characters).
+  // Truncated server-side if longer than 12 characters.
+  string callsign = 3 [(buf.validate.field).string.max_len = 12];
+}
+
+// UpdateCommsConfigResponse is returned after an UpdateCommsConfig request.
+message UpdateCommsConfigResponse {}

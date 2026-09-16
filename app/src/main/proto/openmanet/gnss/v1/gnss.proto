@@ -1,0 +1,226 @@
+syntax = "proto3";
+
+package openmanet.gnss.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// FixType describes the type of GPS navigation fix currently obtained by the
+// receiver. The fix type determines which position dimensions are valid.
+enum FixType {
+  // FIX_TYPE_UNSPECIFIED indicates the fix type has not been determined.
+  FIX_TYPE_UNSPECIFIED = 0;
+
+  // FIX_TYPE_NO_FIX indicates that the receiver has not acquired a valid
+  // position fix. Position coordinates should be considered invalid.
+  FIX_TYPE_NO_FIX = 1;
+
+  // FIX_TYPE_2D indicates a two-dimensional fix. Latitude and longitude are
+  // valid, but altitude is not reliably determined.
+  FIX_TYPE_2D = 2;
+
+  // FIX_TYPE_3D indicates a three-dimensional fix. Latitude, longitude, and
+  // altitude are all valid.
+  FIX_TYPE_3D = 3;
+}
+
+// Position holds the current GPS position, motion vector, and accuracy
+// metrics as reported by the GNSS receiver.
+message Position {
+  // fix_type indicates the current navigation fix quality (none, 2D, or 3D).
+  FixType fix_type = 1;
+
+  // latitude is the WGS-84 latitude in decimal degrees. Positive values
+  // indicate north of the equator; negative values indicate south.
+  double latitude = 2;
+
+  // longitude is the WGS-84 longitude in decimal degrees. Positive values
+  // indicate east of the prime meridian; negative values indicate west.
+  double longitude = 3;
+
+  // altitude is the height above mean sea level (MSL) in meters.
+  // Only meaningful when fix_type is FIX_TYPE_3D.
+  double altitude = 4;
+
+  // speed is the ground speed in meters per second as reported by the
+  // receiver's velocity solution.
+  double speed = 5;
+
+  // heading is the course over ground (true north reference) in degrees,
+  // ranging from 0 to 360.
+  double heading = 6;
+
+  // pdop is the Position Dilution of Precision, a unitless factor that
+  // combines horizontal and vertical geometric dilution. Lower values
+  // indicate better position accuracy.
+  double pdop = 7;
+
+  // hdop is the Horizontal Dilution of Precision, a unitless factor
+  // describing the geometric quality of the satellite constellation for
+  // horizontal positioning. Lower values indicate better accuracy.
+  double hdop = 8;
+
+  // last_update is the UTC timestamp of the most recent valid position fix
+  // from the GNSS receiver.
+  google.protobuf.Timestamp last_update = 9;
+}
+
+// Constellation identifies the GNSS satellite system that emitted a signal.
+// Values match gpsd's gnssid encoding; UNSPECIFIED is reported for any
+// constellation the daemon could not identify.
+enum Constellation {
+  CONSTELLATION_UNSPECIFIED = 0;
+  CONSTELLATION_GPS = 1;
+  CONSTELLATION_SBAS = 2;
+  CONSTELLATION_GALILEO = 3;
+  CONSTELLATION_BEIDOU = 4;
+  CONSTELLATION_IMES = 5;
+  CONSTELLATION_QZSS = 6;
+  CONSTELLATION_GLONASS = 7;
+  CONSTELLATION_IRNSS = 8;
+}
+
+// Satellite describes a single GNSS satellite currently visible to the
+// receiver, including its orbital position, signal quality, and whether it
+// is actively contributing to the navigation solution.
+message Satellite {
+  // prn is the Pseudo-Random Noise code number that uniquely identifies the
+  // satellite within its constellation (e.g., GPS PRN 1-32, GLONASS 65-96).
+  int32 prn = 1;
+
+  // elevation is the satellite's angle above the local horizon in degrees,
+  // ranging from 0 (on the horizon) to 90 (directly overhead).
+  double elevation = 2;
+
+  // azimuth is the satellite's compass bearing from the receiver in degrees,
+  // measured clockwise from true north (0-360).
+  double azimuth = 3;
+
+  // snr is the carrier-to-noise density ratio (signal-to-noise ratio) in
+  // dB-Hz. Higher values indicate a stronger, more reliable signal.
+  // Typical range is 0-50 dB-Hz.
+  double snr = 4;
+
+  // used indicates whether this satellite is currently included in the
+  // receiver's navigation solution.
+  bool used = 5;
+
+  // constellation identifies the GNSS system this satellite belongs to.
+  // CONSTELLATION_UNSPECIFIED is emitted by older receivers or by gpsd
+  // builds that do not propagate the gnssid field.
+  Constellation constellation = 6;
+}
+
+// SatelliteStatus provides an overview of the GNSS satellite constellation
+// as seen by the receiver, including summary counts and per-satellite detail.
+message SatelliteStatus {
+  // satellites_used is the number of satellites actively contributing to the
+  // current navigation solution.
+  int32 satellites_used = 1;
+
+  // satellites_in_view is the total number of satellites for which the
+  // receiver is tracking signals, whether or not they are used in the
+  // navigation solution.
+  int32 satellites_in_view = 2;
+
+  // satellites contains detailed information for each satellite currently
+  // visible to the receiver.
+  repeated Satellite satellites = 3;
+
+  // last_update is the UTC timestamp of the most recent SKY report that
+  // carried constellation detail. Partial SKY reports that only refresh
+  // DOP values do not advance this timestamp, so it reflects the freshness
+  // of the sky-in-view data rather than liveness of the gpsd link.
+  google.protobuf.Timestamp last_update = 4;
+}
+
+// GNSSSource identifies which position provider feeds the GNSS subsystem.
+enum GNSSSource {
+  // GNSS_SOURCE_UNSPECIFIED is treated as GNSS_SOURCE_INTERNAL.
+  GNSS_SOURCE_UNSPECIFIED = 0;
+
+  // GNSS_SOURCE_INTERNAL uses the position reported by the local GNSS
+  // receiver via gpsd (onboard or USB-attached hardware).
+  GNSS_SOURCE_INTERNAL = 1;
+
+  // GNSS_SOURCE_EXTERNAL_COT adopts the position broadcast by a connected
+  // end-user device (e.g. ATAK) as Cursor-on-Target over the SA multicast
+  // group, instead of reading a local receiver. Lets a node with no GNSS
+  // hardware still report its own position, using the EUD's (typically
+  // more accurate) fix.
+  GNSS_SOURCE_EXTERNAL_COT = 2;
+}
+
+// GNSSSettings holds the top-level GNSS receiver configuration that
+// controls whether the GPS subsystem is active and where its position
+// data comes from.
+message GNSSSettings {
+  // enable_gps controls whether the GNSS receiver subsystem is active.
+  // When false, no position data is collected or distributed.
+  bool enable_gps = 1;
+
+  // source selects which position provider feeds the GNSS subsystem.
+  // GNSS_SOURCE_UNSPECIFIED is treated as GNSS_SOURCE_INTERNAL.
+  GNSSSource source = 2;
+}
+
+// OutputProtocols configures how position data is distributed to external
+// systems such as ATAK / Cursor-on-Target (CoT) consumers and NMEA-capable
+// devices on the local network.
+message OutputProtocols {
+  // send_as_nmea enables broadcasting raw NMEA sentences to active devices
+  // on the network. Each connected device receives NMEA GGA sentences via
+  // UDP on the TAK GPS port.
+  bool send_as_nmea = 1;
+
+  // send_as_cot enables sending position updates as Cursor-on-Target (CoT)
+  // messages to ATAK-compatible end-user devices and the SA multicast group.
+  bool send_as_cot = 2;
+
+  // cot_uid is the unique identifier used in outgoing CoT messages. If
+  // empty, the system hostname is used as the UID.
+  string cot_uid = 3;
+}
+
+// GetGNSSStatusResponse contains the current GNSS receiver position and a
+// snapshot of the visible satellite constellation. Returned by GetGNSSStatus.
+message GetGNSSStatusResponse {
+  // position holds the latest position fix and accuracy data from the
+  // GNSS receiver. May be empty if the receiver has not yet acquired a fix.
+  Position position = 1;
+
+  // satellite_status holds the current satellite constellation overview,
+  // including per-satellite detail and usage counts.
+  SatelliteStatus satellite_status = 2;
+}
+
+// GetGNSSConfigResponse contains the current GNSS settings and output
+// protocol configuration. Returned by GetGNSSConfig.
+message GetGNSSConfigResponse {
+  // settings contains the GNSS receiver enable/disable state.
+  GNSSSettings settings = 1;
+
+  // output_protocols contains the NMEA and CoT distribution configuration.
+  OutputProtocols output_protocols = 2;
+}
+
+// UpdateGNSSConfigRequest carries the desired GNSS settings and output
+// protocol configuration to be persisted.
+message UpdateGNSSConfigRequest {
+  // settings contains the desired GNSS receiver enable/disable state.
+  GNSSSettings settings = 1;
+
+  // output_protocols contains the desired NMEA and CoT distribution
+  // configuration.
+  OutputProtocols output_protocols = 2;
+}
+
+// UpdateGNSSConfigResponse indicates whether the configuration update was
+// successfully persisted.
+message UpdateGNSSConfigResponse {
+  // success is true when the configuration was persisted without error.
+  bool success = 1;
+
+  // message provides a human-readable description of the outcome, including
+  // any warnings or errors encountered during persistence.
+  optional string message = 2;
+}

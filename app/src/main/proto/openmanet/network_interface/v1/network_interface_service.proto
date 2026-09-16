@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package openmanet.network_interface.v1;
+
+import "google/protobuf/empty.proto";
+import "openmanet/network_interface/v1/dhcp.proto";
+import "openmanet/network_interface/v1/interface.proto";
+
+// NetworkInterfaceService provides read-only access to network interface
+// configuration, status, and DHCP information on the OpenMANET system.
+service NetworkInterfaceService {
+  // ListNetworkInterfaces returns all network interfaces with their current
+  // status, addresses, traffic counters, and MTU.
+  rpc ListNetworkInterfaces(google.protobuf.Empty) returns (ListNetworkInterfacesResponse);
+
+  // GetDHCPServerConfig returns the active DHCP server configuration,
+  // including the address range, lease time, and DNS forwarding status.
+  rpc GetDHCPServerConfig(google.protobuf.Empty) returns (GetDHCPServerConfigResponse);
+
+  // ListActiveDHCPLeases returns all currently active DHCP leases issued
+  // by the dnsmasq DHCP server.
+  rpc ListActiveDHCPLeases(google.protobuf.Empty) returns (ListActiveDHCPLeasesResponse);
+
+  // ListStaticDHCPLeases returns all manually configured static DHCP
+  // reservations (host sections in UCI dhcp config).
+  rpc ListStaticDHCPLeases(google.protobuf.Empty) returns (ListStaticDHCPLeasesResponse);
+}

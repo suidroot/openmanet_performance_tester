@@ -1,0 +1,513 @@
+syntax = "proto3";
+
+package openmanet.setup.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+import "openmanet/common/v1/options.proto";
+import "openmanet/wifi_config/v1/wifi_config.proto";
+
+// MeshRole determines whether this node only relays mesh traffic
+// (Mesh Point) or also bridges it to an upstream network (Mesh Gate).
+// The string_name maps directly to UCI mesh11sd.mesh_params.mesh_gate_announcements.
+enum MeshRole {
+  MESH_ROLE_UNSPECIFIED = 0;
+
+  MESH_ROLE_MESH_POINT = 1 [(openmanet.common.v1.string_name) = "0"];
+
+  MESH_ROLE_MESH_GATE = 2 [(openmanet.common.v1.string_name) = "1"];
+}
+
+// MeshPointMode is the device-mode sub-selection when role == MESH_POINT.
+// Maps to UCI network.wizard.device_mode_meshpoint.
+//
+// EXTENDER is what the LuCI wizard calls "bridge": the ethernet ports are
+// bridged into br-ahwlan with one DHCP pool on ahwlan, and batman-adv still
+// runs underneath. NONE has no LuCI-reachable equivalent and is rejected by
+// the handler until the daemon's address-reservation worker can leave a
+// DHCP-client ahwlan alone (see validateProfile in setup.go).
+enum MeshPointMode {
+  MESH_POINT_MODE_UNSPECIFIED = 0;
+
+  MESH_POINT_MODE_NONE = 1 [(openmanet.common.v1.string_name) = "none"];
+
+  MESH_POINT_MODE_EXTENDER = 2 [(openmanet.common.v1.string_name) = "extender"];
+}
+
+// MeshGateMode is the device-mode sub-selection when role == MESH_GATE.
+// Maps to UCI network.wizard.device_mode_meshgate.
+//
+// BRIDGE is intentionally omitted: bypasses batman-adv, which is always on
+// in the OpenMANET wizard.
+enum MeshGateMode {
+  MESH_GATE_MODE_UNSPECIFIED = 0;
+
+  MESH_GATE_MODE_ROUTER = 1 [(openmanet.common.v1.string_name) = "router"];
+
+  MESH_GATE_MODE_ROUTER_FIREWALL = 2 [(openmanet.common.v1.string_name) = "router_firewall"];
+}
+
+// UplinkType identifies how a Mesh Gate reaches the upstream network.
+//
+// NONE is intentionally omitted: a gateway requires an uplink. Operators
+// who want a mesh-only node should pick MESH_ROLE_MESH_POINT.
+enum UplinkType {
+  UPLINK_TYPE_UNSPECIFIED = 0;
+
+  UPLINK_TYPE_ETHERNET = 1 [(openmanet.common.v1.string_name) = "ethernet"];
+
+  UPLINK_TYPE_WIRELESS_STA = 2 [(openmanet.common.v1.string_name) = "wifi-sta"];
+}
+
+// WifiStaProfile configures a station-mode interface on a non-mesh radio,
+// used when uplink.type == WIRELESS_STA.
+message WifiStaProfile {
+  string radio_name = 1 [(buf.validate.field).string.min_len = 1];
+
+  // SSID: WPA spec accepts 1..32 octets, mostly printable. Reject control
+  // characters and embedded NULs. Cross-field check in handler enforces
+  // additional UCI-quoting safety.
+  string ssid = 2 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 32
+    pattern: "^[\\x20-\\x7e]+$"
+  }];
+
+  // Passphrase: WPA2/WPA3 PSK is 8..63 chars. Min length is enforced by
+  // the handler conditional on encryption (length 0 allowed only when
+  // encryption is NONE / OWE).
+  string passphrase = 3 [(buf.validate.field).string.max_len = 63];
+
+  openmanet.wifi_config.v1.WifiEncryption encryption = 4 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+}
+
+// MeshBackhaulProfile turns a non-HaLow radio into a second batman-adv
+// mesh link (UCI network batmesh1) instead of a client AP. The link is
+// always WPA3 (SAE) with its own mesh ID and passphrase; every node on
+// the 2.4 GHz backhaul must share both, plus the channel and width.
+message MeshBackhaulProfile {
+  string mesh_id = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 32
+  }];
+
+  string passphrase = 2 [(buf.validate.field).string = {
+    min_len: 8
+    max_len: 63
+  }];
+
+  // Radio width for the backhaul link. 0 keeps the daemon's fixed
+  // default (HE40); otherwise 20 or 40 (HE20 / HE40).
+  uint32 bandwidth_mhz = 3 [(buf.validate.field).uint32 = {
+    in: [
+      0,
+      20,
+      40
+    ]
+  }];
+
+  // 2.4 GHz channel, 1..11. 0 keeps the daemon's fixed default (8). The
+  // handler rejects a non-zero channel with a zero bandwidth_mhz and the
+  // reverse.
+  uint32 channel = 4 [(buf.validate.field).uint32.lte = 11];
+
+  // Regulatory country written to the backhaul radio. Empty leaves the
+  // radio's current country untouched.
+  string country_code = 5 [(buf.validate.field).string = {
+    max_len: 3
+    pattern: "^([A-Z]{2,3})?$"
+  }];
+}
+
+// RadioApProfile configures one non-mesh radio's AP interface for client
+// devices ("Client device Wi-Fi" in the wizard UI).
+message RadioApProfile {
+  string radio_name = 1 [(buf.validate.field).string.min_len = 1];
+
+  bool enabled = 2;
+
+  string ssid = 3 [(buf.validate.field).string = {
+    max_len: 32
+    pattern: "^[\\x20-\\x7e]*$"
+  }];
+
+  string passphrase = 4 [(buf.validate.field).string.max_len = 63];
+
+  openmanet.wifi_config.v1.WifiEncryption encryption = 5 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+
+  // When set, this radio runs a mesh backhaul instead of an AP. The
+  // handler requires enabled=false, ignores ssid/passphrase/encryption
+  // (encryption must still be a defined non-zero value — send SAE), and
+  // accepts at most one backhaul entry per profile.
+  MeshBackhaulProfile mesh_backhaul = 6;
+}
+
+// Uplink describes how a Mesh Gate connects upstream.
+message Uplink {
+  UplinkType type = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+
+  // For UPLINK_TYPE_ETHERNET. Empty falls back to the first ethernet port.
+  string ethernet_port = 2 [(buf.validate.field).string.max_len = 32];
+
+  // Required when type == UPLINK_TYPE_WIRELESS_STA.
+  WifiStaProfile wireless = 3;
+}
+
+// MeshRadioConfig captures the user's choices for the HaLow / S1G mesh
+// radio: mesh ID, passphrase, encryption, channel and bandwidth.
+message MeshRadioConfig {
+  string radio_name = 1 [(buf.validate.field).string.min_len = 1];
+
+  string mesh_id = 2 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 32
+  }];
+
+  string passphrase = 3 [(buf.validate.field).string.max_len = 63];
+
+  // WPA3 (SAE) is the only encryption an 802.11s mesh link may use;
+  // open meshes are rejected here, not in the handler.
+  openmanet.wifi_config.v1.WifiEncryption encryption = 4 [(buf.validate.field).enum = {
+    defined_only: true
+    in: [1]
+  }];
+
+  // S1G channel numbering depends on bandwidth, so the wizard captures
+  // both. The handler translates bandwidth_mhz to a WifiHTMode value
+  // (S1G_1MHZ / S1G_2MHZ / S1G_4MHZ / S1G_8MHZ for HaLow; HT/VHT/HE for
+  // standard radios) before writing UCI. Validates that the chosen
+  // channel is legal at the chosen bandwidth using regulatory data
+  // already exposed by WifiConfigService.GetRadioSettings.
+  uint32 bandwidth_mhz = 5 [(buf.validate.field).uint32 = {
+    in: [
+      1,
+      2,
+      4,
+      8,
+      20,
+      40,
+      80,
+      160
+    ]
+  }];
+
+  uint32 channel = 6 [(buf.validate.field).uint32.gt = 0];
+
+  // ISO 3166-1 alpha-2 country code (e.g. "US", "GB"). Used to constrain
+  // the legal channel list at the chosen bandwidth and written to
+  // `wireless.<radio>.country`. The frontend selects from
+  // GetSetupStatusResponse.countries; the handler validates that the
+  // (country, bandwidth, channel) tuple appears in the regulatory
+  // database loaded from /usr/share/morse-regdb/channels.csv.
+  //
+  // The buf.validate pattern accepts an empty string so the handler's
+  // own re-apply / regdb-presence checks fire first. Non-empty values
+  // must be 2-3 uppercase letters. The handler additionally rejects an
+  // empty country_code when the regdb is installed (see
+  // validateMeshCountry in setup.go).
+  string country_code = 7 [(buf.validate.field).string = {
+    max_len: 3
+    pattern: "^([A-Z]{2,3})?$"
+  }];
+}
+
+// MeshNodeProfile is the full first-boot configuration applied atomically
+// by SetupService.ApplySetup.
+//
+// Cross-field rules enforced by the handler (phase 1 - Validate):
+//   - WifiStaProfile.passphrase length >= 8 unless encryption in {NONE, OWE}
+//   - RadioApProfile.passphrase length >= 8 when enabled=true and
+//     encryption not in {NONE, OWE}; passphrase ignored otherwise
+//   - aps[] entries must have unique radio_name
+//   - WifiStaProfile.radio_name must NOT equal MeshRadioConfig.radio_name
+//     and must NOT equal any aps[].radio_name with enabled=true
+//     (concurrent AP+STA on the same radio is rejected; chipset support
+//     varies and the wizard is not the place to find out)
+//   - neither aps[].radio_name nor WifiStaProfile.radio_name may name a
+//     wifi-device with type=morse (HaLow): those radios only ever carry
+//     mesh-mode interfaces, and every aps[] entry stages an AP section
+//     whether enabled or not
+//   - MeshRadioConfig.channel must be a legal channel for the chosen
+//     bandwidth on the chosen radio
+//   - device_mode oneof must match role (MESH_GATE -> meshgate_mode,
+//     MESH_POINT -> meshpoint_mode)
+//   - at most one aps[] entry carries mesh_backhaul; that entry must have
+//     enabled=false, its radio must not be the STA uplink radio, and the
+//     device must report supports_mesh_backhaul=true for it
+message MeshNodeProfile {
+  // RFC 1123 hostname label: 1..63 chars, alphanumeric, hyphens allowed
+  // internally, must NOT start or end with a hyphen.
+  string hostname = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 63
+    pattern: "^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$"
+  }];
+
+  // System (root) password set after UCI is committed and before auth is
+  // enabled. Never logged or echoed.
+  string admin_password = 2 [(buf.validate.field).string.min_len = 8];
+
+  MeshRole role = 3 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+
+  // Exactly one is required. Handler asserts MESH_GATE -> meshgate_mode
+  // and MESH_POINT -> meshpoint_mode.
+  oneof device_mode {
+    MeshPointMode meshpoint_mode = 4;
+    MeshGateMode meshgate_mode = 5;
+  }
+
+  MeshRadioConfig mesh = 6;
+
+  // Ignored when role == MESH_ROLE_MESH_POINT.
+  Uplink uplink = 7;
+
+  // One entry per non-mesh radio the operator wants to expose as an AP.
+  // Radios omitted from this list stay disabled. Order is not significant.
+  repeated RadioApProfile aps = 8;
+
+  // IANA timezone name (e.g. "America/Denver"). Optional; empty keeps
+  // the device's current timezone. Membership in the device's zone
+  // table is validated in the handler (not expressible in
+  // protovalidate) and rejected with INVALID_ARGUMENT.
+  string timezone = 9 [(buf.validate.field).string.max_len = 64];
+
+  // Browser wall clock captured when the operator pressed Apply (not
+  // at page load). Used to correct the device clock when drift
+  // exceeds 10s. Optional; best-effort on the device side.
+  google.protobuf.Timestamp client_time = 10;
+}
+
+// SetupRadio describes one physical radio's hardware capabilities for the
+// wizard's selects. Returned in GetSetupStatusResponse.
+message SetupRadio {
+  // UCI device section name, e.g. "radio3".
+  string name = 1;
+
+  // Frequency band of the radio.
+  string band = 2;
+
+  // Human-readable hardware label: the iwinfo chipset name when the
+  // radio's live interface can be resolved (e.g. "MediaTek MT7915AN"),
+  // else the UCI device path.
+  string hardware_name = 3;
+
+  // Per-bandwidth legal channel list, populated from regulatory data.
+  // The frontend uses this to populate the channel dropdown after the
+  // user picks a bandwidth.
+  repeated SetupRadioBandwidth bandwidths = 4;
+
+  // True iff the underlying UCI wifi-device has option type 'morse'
+  // AND the driver reports a usable iwinfo state. Only HaLow radios are
+  // valid mesh radio candidates. The wizard refuses to enter when no
+  // SetupRadio has is_halow=true.
+  bool is_halow = 5;
+
+  // True when the daemon would accept this radio as the 2.4 GHz mesh
+  // backhaul: band 2g, not HaLow, chipset MT7915/MT7916 as reported by
+  // iwinfo through the radio's live interface. False when unresolvable.
+  bool supports_mesh_backhaul = 6;
+}
+
+// SetupRadioBandwidth lists legal channels at a single bandwidth.
+message SetupRadioBandwidth {
+  uint32 mhz = 1;
+  repeated uint32 channels = 2;
+}
+
+// SetupCountry advertises one regulatory domain available on this device,
+// with the legal HaLow channels per bandwidth. Sourced at runtime from
+// /usr/share/morse-regdb/channels.csv (Morse Micro userspace package).
+message SetupCountry {
+  // ISO 3166-1 alpha-2 / FCC region code as it appears in the regdb
+  // (e.g. "US", "GB", "EU").
+  string code = 1;
+
+  // Display name of the country (e.g. "USA", "United Kingdom"). Pulled
+  // from the regdb's `country` column.
+  string name = 2;
+
+  // Legal HaLow channels at each supported bandwidth in this regulatory
+  // domain. Bandwidths absent from the regdb for this country are simply
+  // omitted (the wizard hides those bandwidth options).
+  repeated SetupRadioBandwidth bandwidths = 3;
+}
+
+// GetSetupStatusResponse populates the wizard's pre-flight gate.
+message GetSetupStatusResponse {
+  // True when the wizard feature is allowed on this device. The
+  // operator-controlled kill switch is `setup.enabled` in
+  // /etc/openmanetd/config.yml; default is false during the rollout
+  // period. When false, the frontend treats /setup as inaccessible and
+  // the daemon refuses ApplySetup with CodeUnavailable.
+  bool is_enabled = 1;
+
+  // True when this device has finished setup. Once true the wizard is
+  // locked and ApplySetup returns CodeFailedPrecondition. Resets to false
+  // only via factory reset or operator hand-edit of config.yml.
+  bool is_setup_complete = 2;
+
+  // True iff at least one SetupRadio has is_halow=true AND the radio
+  // reports a usable iwinfo state. The wizard refuses to enter when this
+  // is false; the frontend renders a "no HaLow radio detected" page.
+  bool has_halow_radio = 3;
+
+  // True when the device's UCI state looks like it has already been
+  // configured by some prior process (operator hand-edits, a previous
+  // wizard run that did not write setup.complete, an upgrade from an
+  // older build). The frontend uses this to show a "device appears
+  // already configured - continuing will reset it" confirmation gate on
+  // Step 1.
+  //
+  // Heuristics that flip this true:
+  //   - mesh11sd.mesh_params.mesh_gate_announcements is set
+  //   - network.ahwlan.proto is set
+  //   - auth.enable=true
+  //   - the system hostname is not the factory default
+  bool already_configured = 4;
+
+  // Current system hostname.
+  string current_hostname = 5;
+
+  // All radios on the device. Includes both HaLow and non-HaLow radios so
+  // non-HaLow radios remain available as AP candidates on Step 4.
+  repeated SetupRadio radios = 6;
+
+  // Built-in ethernet ports usable as gateway uplinks.
+  repeated string ethernet_ports = 7;
+
+  // All HaLow regulatory domains available on this device, sourced from
+  // /usr/share/morse-regdb/channels.csv. Empty if the regdb file is
+  // missing or unreadable; the wizard falls back to a baked-in US-only
+  // default in that case so the flow does not block.
+  repeated SetupCountry countries = 8;
+
+  // Country code currently configured on the HaLow wifi-device (UCI
+  // `wireless.<morse-radio>.country`). The frontend uses this as the
+  // pre-selected default on the country dropdown.
+  string current_country = 9;
+
+  // IANA zone names the device accepts, sorted. Drives the wizard's
+  // timezone select so the list is device-authoritative.
+  repeated string timezones = 10;
+
+  // Currently configured IANA zone (system.@system[0].zonename);
+  // empty when unset.
+  string current_timezone = 11;
+}
+
+// ApplySetupRequest carries the complete profile to apply.
+message ApplySetupRequest {
+  MeshNodeProfile profile = 1;
+}
+
+// ApplySetupResult is delivered as the payload of the terminal
+// ApplySetupResponse event. Success is true iff every phase succeeded
+// and both `setup.complete` and `auth.enable` were durably written.
+message ApplySetupResult {
+  bool success = 1;
+
+  // The phase that failed, or PHASE_UNSPECIFIED on success.
+  ApplySetupResponse.Phase failed_phase = 2;
+
+  // Computed server-side from profile.hostname and the highest-priority
+  // enabled AP. Advisory; the success page uses these to instruct the
+  // user how to reconnect.
+  string expected_ssid = 3;
+  string expected_url = 4;
+}
+
+// ApplySetupResponse is the server-streamed progress event emitted during
+// ApplySetup. Each pre-terminal phase emits STATUS_STARTED on entry and
+// STATUS_DONE (or STATUS_FAILED) on exit. The terminal event has
+// phase=PHASE_TERMINAL and carries the ApplySetupResult.
+//
+// Phase ordering as of the post-bricking restructure. Enum numbers do
+// NOT track execution order for the phases annotated below — this list
+// is EXECUTION order, with each entry's real enum value called out:
+//   1     VALIDATE
+//   2     SNAPSHOT
+//   3     RESET_WIRELESS
+//   4     RESET_NETWORK
+//   5     HOSTNAME
+//   16    SET_TIMEZONE      (numbered 16 because 14/15 were already
+//                             consumed by the reload/persist restructure
+//                             below, but it EXECUTES here — between
+//                             HOSTNAME and BASE_NETWORK — so the device
+//                             clock and locale are correct before any
+//                             network state is touched)
+//   6     BASE_NETWORK
+//   7     WIRELESS_MESH
+//   8     PER_RADIO_AP_STA
+//   9     SCENARIO_TOPOLOGY
+//   10    BATMAN_ADV
+//   11    MESH11SD
+//   12    COMMIT
+//   13    PASSWORD
+//   15    RELOAD_SERVICES   (synchronous; reload then restart fallback)
+//   14    PERSIST_FLAGS     (atomic flip; only after reload succeeded)
+//   99    TERMINAL
+//
+// PHASE_RELOAD_SERVICES (enum 15) runs synchronously BEFORE
+// PHASE_PERSIST_FLAGS (enum 14) so the wizard only persists
+// `setup.complete=true` when the reloaded services actually picked up
+// the new UCI. A pre-restructure version emitted PHASE_TERMINAL before
+// reload and let reload run in a fire-and-forget goroutine; that
+// turned a failed reload into a silent brick (UCI committed, flags
+// flipped, device unreachable, wizard permanently disabled). Reload
+// failures now abort PERSIST_FLAGS so the user can re-run the wizard
+// from CLI/console recovery.
+message ApplySetupResponse {
+  enum Phase {
+    PHASE_UNSPECIFIED = 0;
+    PHASE_VALIDATE = 1;
+    PHASE_SNAPSHOT = 2;
+    PHASE_RESET_WIRELESS = 3;
+    PHASE_RESET_NETWORK = 4;
+    PHASE_HOSTNAME = 5;
+    PHASE_BASE_NETWORK = 6;
+    PHASE_WIRELESS_MESH = 7;
+    PHASE_PER_RADIO_AP_STA = 8;
+    PHASE_SCENARIO_TOPOLOGY = 9;
+    PHASE_BATMAN_ADV = 10;
+    PHASE_MESH11SD = 11;
+    PHASE_COMMIT = 12;
+    PHASE_PASSWORD = 13;
+    PHASE_RELOAD_SERVICES = 15;
+    PHASE_PERSIST_FLAGS = 14;
+
+    // Stages system.zonename + POSIX timezone; runs between
+    // PHASE_HOSTNAME and PHASE_BASE_NETWORK. Numbered 16 because 14/15
+    // were consumed by the reload/persist restructure (numbers no
+    // longer track execution order — see the ordering comment above).
+    PHASE_SET_TIMEZONE = 16;
+    PHASE_TERMINAL = 99;
+  }
+
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_STARTED = 1;
+    STATUS_DONE = 2;
+    STATUS_FAILED = 3;
+  }
+
+  Phase phase = 1;
+  Status status = 2;
+
+  // Operator-readable; safe to display.
+  string message = 3;
+
+  // Set on the PHASE_TERMINAL event.
+  ApplySetupResult result = 4;
+}

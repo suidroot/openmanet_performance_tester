@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package openmanet.network.v1;
+
+message Gateway {
+  // MAC address of the gateway
+  string mac = 1;
+  // Hostname of the gateway
+  string hostname = 2;
+  // IP address of the gateway
+  string ipaddr = 3;
+}

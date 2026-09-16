@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package openmanet.service.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/empty.proto";
+import "openmanet/network/v1/node.proto";
+
+// NodeService provides methods to manage and retrieve information about mesh nodes
+// within the OpenMANET system.
+service NodeService {
+  // Retrieves detailed information for a specific node by hostname.
+  rpc GetNode(GetNodeRequest) returns (GetNodeResponse) {}
+
+  // Lists all nodes currently managed by the system. Rows are fed by the
+  // alfred poll and expire: a peer silent for longer than alfred.nodeExpiry
+  // (default 24h) is deleted on the next poll and drops out of this list.
+  // No expiry runs while alfred itself is unreachable.
+  rpc ListNodes(google.protobuf.Empty) returns (ListNodesResponse) {}
+}
+
+// Request message for retrieving a specific node
+message GetNodeRequest {
+  // Hostname of the node to retrieve
+  string hostname = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+// Response message for retrieving a specific node
+message GetNodeResponse {
+  // Node information
+  openmanet.network.v1.Node node = 1;
+}
+
+// Response message for listing nodes
+message ListNodesResponse {
+  // List of nodes
+  repeated openmanet.network.v1.Node nodes = 1;
+}

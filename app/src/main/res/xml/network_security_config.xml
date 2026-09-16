@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  openmanetd speaks plain-text HTTP/2 (h2c) on the mesh network, never TLS.
+  Cleartext is allowed globally rather than scoped to a domain because Android's
+  domain-config matches hostnames, not the CIDR-based mesh IPs (10.41.0.0/16) this
+  app connects to; the app has no other reason to speak cleartext HTTP to anything else.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

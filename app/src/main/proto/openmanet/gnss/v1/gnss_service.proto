@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package openmanet.gnss.v1;
+
+import "google/protobuf/empty.proto";
+import "openmanet/gnss/v1/gnss.proto";
+
+// GNSSService provides methods to query the real-time status of the onboard
+// GNSS receiver and to manage its configuration.
+//
+// It exposes:
+//   - position and satellite constellation status for UI rendering,
+//   - current GNSS configuration for the settings panel,
+//   - a configuration update endpoint that persists changes to the
+//     config file and applies them at runtime.
+//
+// When the GNSS hardware is unavailable or disabled, status methods return
+// empty responses rather than errors so that clients can render a
+// "no data" state gracefully.
+service GNSSService {
+  // GetGNSSStatus returns the current GPS position fix and a snapshot of the
+  // satellite constellation visible to the receiver. The response includes
+  // individual satellite details (PRN, elevation, azimuth, SNR, and whether
+  // the satellite is used in the navigation solution) as well as aggregate
+  // dilution-of-precision metrics (PDOP, HDOP).
+  //
+  // Returns an empty response (not an error) when the GNSS subsystem is
+  // disabled or the receiver hardware is not present.
+  rpc GetGNSSStatus(google.protobuf.Empty) returns (GetGNSSStatusResponse);
+
+  // GetGNSSConfig returns the current GNSS receiver settings and output
+  // protocol configuration as stored in the persistent config file. This
+  // includes the enable/disable state, NMEA and CoT distribution toggles,
+  // and the CoT UID.
+  rpc GetGNSSConfig(google.protobuf.Empty) returns (GetGNSSConfigResponse);
+
+  // UpdateGNSSConfig persists the provided GNSS settings and output protocol
+  // configuration to the config file and refreshes the in-memory state.
+  // Changes take effect immediately for output protocol toggles; enabling or
+  // disabling the GNSS receiver itself may require a service restart.
+  //
+  // Returns a CodeInternal error if the config file cannot be written.
+  rpc UpdateGNSSConfig(UpdateGNSSConfigRequest) returns (UpdateGNSSConfigResponse);
+}

@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package openmanet.service.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/empty.proto";
+
+// Defines a wireless network interface and its radio characteristics.
+// Provides RPCs to fetch a specific interface by name or list all interfaces.
+// Request message identifies the interface by name; response lists interfaces.
+message WirelessInterface {
+  // The index of the interface.
+  int32 index = 1;
+
+  // The name of the interface.
+  string name = 2;
+
+  // The hardware address of the interface.
+  string hardware_address = 3;
+
+  // The physical device that this interface belongs to.
+  int32 phy = 4;
+
+  // The virtual device number of this interface within a PHY.
+  int32 device = 5;
+
+  // The operating mode of the interface.
+  string interface_type = 6;
+
+  // The interface's wireless frequency in MHz.
+  int32 frequency = 7;
+
+  // The interface's wireless channel width.
+  int32 channel_width = 8;
+}
+
+// InterfaceService provides methods to manage and retrieve information about network interfaces
+// within the OpenMANET system.
+service InterfaceService {
+  // Retrieves detailed configuration and status information for a specific wireless interface.
+  rpc GetWirelessInterface(GetWirelessInterfaceRequest) returns (GetWirelessInterfaceResponse) {}
+
+  // Lists all available wireless interfaces currently managed by the system.
+  rpc ListWirelessInterfaces(google.protobuf.Empty) returns (ListWirelessInterfacesResponse) {}
+}
+
+// Request message for retrieving details about a specific wireless interface.
+message GetWirelessInterfaceRequest {
+  // The name of the wireless interface to retrieve.
+  string name = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+// Response message for retrieving details about a specific wireless interface.
+message GetWirelessInterfaceResponse {
+  // The wireless interface details.
+  WirelessInterface interface = 1;
+}
+
+// Response message for listing wireless interfaces.
+message ListWirelessInterfacesResponse {
+  // The list of wireless interfaces.
+  repeated WirelessInterface interfaces = 1;
+}

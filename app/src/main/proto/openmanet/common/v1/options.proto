@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package openmanet.common.v1;
+
+import "google/protobuf/descriptor.proto";
+
+// string_name maps a protobuf enum value to its canonical string
+// representation used in UCI configuration files and ubus calls.
+extend google.protobuf.EnumValueOptions {
+  optional string string_name = 123456789;
+}

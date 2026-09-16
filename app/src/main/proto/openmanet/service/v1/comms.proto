@@ -1,0 +1,119 @@
+syntax = "proto3";
+
+package openmanet.service.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/empty.proto";
+
+// CommsService provides RPC methods for managing communication status and talkgroups
+// within the OpenMANET service.
+//
+// The service exposes the following operations:
+//   - Retrieving the current communication status of the OpenMANET service.
+//   - Joining a specified talkgroup for communication.
+//
+// Example usage:
+//   - Call GetCommsStatus to monitor the current state of communications.
+//
+// Note: GetCommsStatus takes no request parameters (google.protobuf.Empty) and
+// returns a GetCommsStatusResponse containing the current communication status.
+service CommsService {
+  // Retrieves the current communication status of the OpenMANET service.
+  rpc GetCommsStatus(google.protobuf.Empty) returns (GetCommsStatusResponse);
+
+  // Enables or disables RTP transmission on the specified talkgroup.
+  rpc SetSendTalkGroup(SetSendTalkGroupRequest) returns (SetSendTalkGroupResponse);
+
+  // Enables or disables RTP reception on the specified talkgroup.
+  rpc SetReceiveTalkGroup(SetReceiveTalkGroupRequest) returns (SetReceiveTalkGroupResponse);
+}
+
+// GetCommsStatusResponse represents the current communication status of the OpenMANET node.
+message GetCommsStatusResponse {
+  // The active talkgroup the node is currently participating in.
+  int32 active_talkgroup = 1;
+
+  // Available talkgroups that the node can join.
+  repeated int32 available_talkgroups = 2;
+
+  // Per-port direction state for all configured talkgroups. Empty when the
+  // comms subsystem is not running.
+  repeated TalkGroupState talkgroup_states = 3;
+}
+
+// TalkGroupState is a read-only snapshot of the runtime send/receive direction
+// toggles for a single configured talkgroup port.
+message TalkGroupState {
+  // 1-based talkgroup number identifying this talkgroup.
+  int32 talkgroup = 1;
+
+  // Multicast address for this talkgroup.
+  string address = 2;
+
+  // UDP port for this talkgroup.
+  int32 port = 3;
+
+  // Whether RTP transmission is currently enabled on this talkgroup.
+  bool send_enabled = 4;
+
+  // Whether RTP reception is currently enabled on this talkgroup.
+  bool receive_enabled = 5;
+}
+
+// SetSendTalkGroupRequest enables or disables RTP transmission on the talkgroup
+// identified by its 1-based channel number.
+message SetSendTalkGroupRequest {
+  // The 1-based channel number of the talkgroup to configure.
+  int32 talkgroup = 1 [
+    (buf.validate.field).int32 = {
+      gte: 1
+      lte: 32
+    },
+    (buf.validate.field).int32.example = 1,
+    (buf.validate.field).int32.example = 3,
+    (buf.validate.field).int32.example = 5,
+    (buf.validate.field).int32.example = 7,
+    (buf.validate.field).int32.example = 9
+  ];
+
+  // Whether RTP transmission should be enabled on this talkgroup.
+  bool enabled = 2;
+}
+
+// SetSendTalkGroupResponse is returned after a SetSendTalkGroup request.
+message SetSendTalkGroupResponse {
+  // Indicates whether the request to join the talkgroup was successful.
+  bool success = 1;
+
+  // Optional message providing additional information about the join operation.
+  string message = 2;
+}
+
+// SetReceiveTalkGroupRequest enables or disables RTP reception on the talkgroup
+// identified by its 1-based channel number.
+message SetReceiveTalkGroupRequest {
+  // The 1-based channel number of the talkgroup to configure.
+  int32 talkgroup = 1 [
+    (buf.validate.field).int32 = {
+      gte: 1
+      lte: 32
+    },
+    (buf.validate.field).int32.example = 1,
+    (buf.validate.field).int32.example = 3,
+    (buf.validate.field).int32.example = 5,
+    (buf.validate.field).int32.example = 7,
+    (buf.validate.field).int32.example = 9
+  ];
+
+  // Whether RTP reception should be enabled on this talkgroup.
+  bool enabled = 2;
+}
+
+// SetReceiveTalkGroupResponse is returned after a SetReceiveTalkGroup request.
+message SetReceiveTalkGroupResponse {
+  // Indicates whether the request to join the talkgroup was successful.
+  bool success = 1;
+
+  // Optional message providing additional information about the join operation.
+  string message = 2;
+}

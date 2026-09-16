@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package openmanet.mesh_join.v1;
+
+import "google/protobuf/empty.proto";
+import "openmanet/mesh_join/v1/mesh_join.proto";
+
+// MeshJoinService shares this node's mesh credentials as a QR code and
+// joins this node to the meshes described by a scanned code. Both RPCs
+// require a session; the auth middleware does not exempt them.
+service MeshJoinService {
+  // GetMeshJoinQR renders this node's mesh credentials as a QR code.
+  // CodeFailedPrecondition when no WPA3 (SAE) HaLow mesh interface is
+  // configured.
+  rpc GetMeshJoinQR(google.protobuf.Empty) returns (GetMeshJoinQRResponse);
+
+  // ApplyMeshJoin joins this node to the meshes in a scanned payload.
+  // All-or-nothing: every radio is validated before the first UCI write
+  // and wireless is reloaded once. Validation failures are
+  // CodeInvalidArgument naming the radio and field.
+  rpc ApplyMeshJoin(ApplyMeshJoinRequest) returns (ApplyMeshJoinResponse);
+}

@@ -1,0 +1,306 @@
+syntax = "proto3";
+
+package openmanet.blos.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+// BLOSTunnelIdentity describes the local node's position on the Tailscale
+// overlay. All fields are sourced from the Tailscale SDK's ipnstate.Status
+// and are only populated when the BLOS subsystem is enabled and the
+// Tailscale backend state is "Running".
+message BLOSTunnelIdentity {
+  // hostname is the Tailscale-assigned short hostname for this node
+  // (status.Self.HostName). Empty until the backend is logged in.
+  string hostname = 1;
+
+  // dns_name is the fully-qualified MagicDNS name for this node
+  // (status.Self.DNSName), e.g. "node-42.tailnet.ts.net.". Trailing dot
+  // preserved to match the SDK; UI should strip it for display.
+  string dns_name = 2;
+
+  // os is the operating-system identifier reported to the control plane
+  // (status.Self.OS). Usually "linux" for OpenMANET devices.
+  string os = 3;
+
+  // overlay_ips lists the Tailscale-assigned IPv4 and IPv6 addresses on
+  // this node (status.Self.TailscaleIPs), formatted as plain address
+  // strings with no prefix length.
+  repeated string overlay_ips = 4;
+
+  // connected_since is the wall-clock time when the backend first
+  // transitioned to "Running" in the current enable cycle. Cleared when
+  // BLOS is disabled. Not persisted across daemon restarts.
+  google.protobuf.Timestamp connected_since = 5;
+
+  // backend_state mirrors status.BackendState verbatim. Known values
+  // include "NoState", "NeedsLogin", "NeedsMachineAuth", "Stopped",
+  // "Starting", "Running". The handler does not interpret this string.
+  string backend_state = 6;
+
+  // magic_dns_suffix is the DNS suffix under which peer names are
+  // resolvable (status.MagicDNSSuffix), e.g. "tailnet.ts.net". Empty when
+  // MagicDNS is disabled on the tailnet.
+  string magic_dns_suffix = 7;
+
+  // tailnet_name is the human-readable tailnet or org name the node
+  // belongs to (status.CurrentTailnet.Name). Empty pre-login.
+  string tailnet_name = 8;
+}
+
+// BLOSDERP describes the DERP relay state for the local tunnel. Populated
+// from status.Self fields. Zero-valued when no DERP is in use.
+message BLOSDERP {
+  // region is the DERP region identifier the local node is homed on
+  // (status.Self.Relay), e.g. "nyc". Empty when relaying is disabled or
+  // the backend is not yet running.
+  string region = 1;
+
+  // latency_ms is the most recent round-trip latency to the home DERP
+  // region in milliseconds. Zero when no measurement is available; the
+  // daemon does not currently probe DERP on demand to avoid blocking the
+  // RPC handler on network I/O.
+  int32 latency_ms = 2;
+
+  // endpoint is the wire-level address currently carrying traffic —
+  // status.Self.CurAddr when the session is direct, otherwise the DERP
+  // relay server address.
+  string endpoint = 3;
+
+  // path is either "direct" (CurAddr is set) or "derp" (falling back to
+  // a relay). Empty when the backend is not running.
+  string path = 4;
+
+  // keepalive_interval is the Tailscale peer keepalive cadence. Tailscale
+  // defaults to 25s and the daemon does not currently override it, so
+  // this is a constant for now; exposed as a field so the front-end does
+  // not hardcode the value.
+  google.protobuf.Duration keepalive_interval = 5;
+}
+
+// BLOSCounters aggregates RX/TX byte counts across all overlay peers.
+// Values are cumulative since the Tailscale daemon last started; they
+// reset when tailscaled restarts but not when BLOS toggles.
+message BLOSCounters {
+  // rx_bytes_total is the sum of PeerStatus.RxBytes across all peers.
+  uint64 rx_bytes_total = 1;
+
+  // tx_bytes_total is the sum of PeerStatus.TxBytes across all peers.
+  uint64 tx_bytes_total = 2;
+
+  // rx_bytes_per_sec is the RX rate computed over a rolling 60-second
+  // window of samples maintained by the StatusWorker. Zero until the
+  // ring has at least two samples.
+  double rx_bytes_per_sec = 3;
+
+  // tx_bytes_per_sec is the TX rate computed over the same rolling 60s
+  // window as rx_bytes_per_sec.
+  double tx_bytes_per_sec = 4;
+}
+
+// BLOSNetworkConfig reports the node's overlay-network policy, sourced
+// from the live Tailscale preferences (ipn.Prefs) rather than config files.
+message BLOSNetworkConfig {
+  // exit_node is true when this node is configured to route all traffic
+  // for its tailnet peers (prefs.ExitNodeIP is valid).
+  bool exit_node = 1;
+
+  // advertised_routes lists the CIDR subnets this node advertises as
+  // subnet routes (prefs.AdvertiseRoutes), formatted as plain CIDR
+  // strings (e.g. "10.41.0.0/16").
+  repeated string advertised_routes = 2;
+
+  // acl_tags lists the ACL tags applied to this node
+  // (status.Self.Tags), e.g. "tag:gateway". Empty when no tags are set.
+  repeated string acl_tags = 3;
+}
+
+// BLOSPeer describes a single remote node visible on the Tailscale
+// overlay. All fields are sourced from ipnstate.PeerStatus.
+message BLOSPeer {
+  // hostname is the peer's short hostname (PeerStatus.HostName).
+  string hostname = 1;
+
+  // dns_name is the peer's fully-qualified MagicDNS name
+  // (PeerStatus.DNSName).
+  string dns_name = 2;
+
+  // os is the peer's operating-system identifier (PeerStatus.OS).
+  string os = 3;
+
+  // overlay_ips is the peer's Tailscale IPv4 and IPv6 addresses
+  // (PeerStatus.TailscaleIPs), formatted as plain address strings.
+  repeated string overlay_ips = 4;
+
+  // endpoint is PeerStatus.CurAddr — the direct-connect address when
+  // the session is not relayed. Empty when the peer is reached through
+  // DERP only.
+  string endpoint = 5;
+
+  // relay_region is PeerStatus.Relay, the DERP region the peer is homed
+  // on. Empty when unknown.
+  string relay_region = 6;
+
+  // online reflects PeerStatus.Online — whether the control plane
+  // currently considers the peer reachable.
+  bool online = 7;
+
+  // active reflects PeerStatus.Active — whether the peer has exchanged
+  // traffic with this node recently, regardless of online status.
+  bool active = 8;
+
+  // rx_bytes is cumulative bytes received from this peer
+  // (PeerStatus.RxBytes).
+  uint64 rx_bytes = 9;
+
+  // tx_bytes is cumulative bytes sent to this peer
+  // (PeerStatus.TxBytes).
+  uint64 tx_bytes = 10;
+
+  // last_seen is the last time the control plane observed the peer
+  // online (PeerStatus.LastSeen). Unset when never seen.
+  google.protobuf.Timestamp last_seen = 11;
+
+  // last_handshake is the last WireGuard handshake time with the peer
+  // (PeerStatus.LastHandshake). Unset when no handshake has completed.
+  google.protobuf.Timestamp last_handshake = 12;
+
+  // tags is the set of ACL tags assigned to the peer (PeerStatus.Tags).
+  repeated string tags = 13;
+
+  // primary_routes lists the subnet routes the peer advertises and is
+  // the primary for (PeerStatus.PrimaryRoutes), formatted as CIDR
+  // strings.
+  repeated string primary_routes = 14;
+
+  // path is "direct" when endpoint is set, "derp" when routed through a
+  // relay, or empty when the peer has no current session.
+  string path = 15;
+
+  // latency_ms is the best-effort round-trip latency to this peer in
+  // milliseconds. Zero when no measurement is available.
+  int32 latency_ms = 16;
+}
+
+// GetBLOSStatusResponse carries the current status of the BLOS
+// subsystem. The identity, derp, counters, and network sub-messages are
+// only populated when blos_enabled is true and the Tailscale backend is
+// in the "Running" state; otherwise they are present but zero-valued.
+message GetBLOSStatusResponse {
+  // blos_enabled indicates whether the BLOS subsystem is currently
+  // enabled in the daemon configuration and actively running.
+  bool blos_enabled = 1;
+
+  // message is a human-readable status summary — typically one of
+  // "enabled and running", "enabled but not yet running", or
+  // "disabled". Intended for display, not programmatic inspection.
+  optional string message = 2;
+
+  // identity carries overlay-network identifying information about this
+  // node. Zero-valued when the backend is not running.
+  BLOSTunnelIdentity identity = 3;
+
+  // derp carries DERP relay state for the local tunnel.
+  BLOSDERP derp = 4;
+
+  // counters carries aggregated RX/TX byte counts and rates.
+  BLOSCounters counters = 5;
+
+  // network carries overlay-network policy (exit-node flag, advertised
+  // routes, ACL tags) sourced from live Tailscale preferences.
+  BLOSNetworkConfig network = 6;
+}
+
+// UpdateBLOSConfigRequest carries the fields required to enable or
+// disable the BLOS subsystem.
+message UpdateBLOSConfigRequest {
+  // enable_blos requests enabling (true) or disabling (false) the BLOS
+  // subsystem.
+  bool enable_blos = 1;
+
+  // auth_key is the Tailscale or Headscale authentication key. Required
+  // when enable_blos is true; ignored when disabling.
+  string auth_key = 2;
+
+  // login_server_url is the optional Headscale login server URL. When
+  // empty, the Tailscale default control server is used.
+  optional string login_server_url = 3;
+}
+
+// UpdateBLOSConfigResponse reports the outcome of an UpdateBLOSConfig call.
+message UpdateBLOSConfigResponse {
+  // success indicates whether the update completed without error.
+  bool success = 1;
+
+  // message is a human-readable summary of the update result.
+  optional string message = 2;
+}
+
+// ListBLOSPeersResponse carries the set of remote nodes visible to this
+// node on the Tailscale overlay. Order is stable (sorted by hostname).
+message ListBLOSPeersResponse {
+  // peers is the full list of remote overlay nodes. Empty when BLOS is
+  // disabled or the backend is not yet running.
+  repeated BLOSPeer peers = 1;
+}
+
+// BLOSEventKind enumerates the observable event categories. Unknown
+// kinds should be ignored by clients for forward compatibility.
+enum BLOSEventKind {
+  // Unspecified is the default zero value and must not be emitted by
+  // the daemon.
+  BLOS_EVENT_KIND_UNSPECIFIED = 0;
+
+  // BackendState reports a Tailscale backend state transition
+  // (e.g. Running, NeedsLogin, Stopped).
+  BLOS_EVENT_KIND_BACKEND_STATE = 1;
+
+  // PeerAdded reports that a new peer appeared in the overlay.
+  BLOS_EVENT_KIND_PEER_ADDED = 2;
+
+  // PeerLost reports that an existing peer disappeared from the overlay.
+  BLOS_EVENT_KIND_PEER_LOST = 3;
+
+  // PeerOnline reports that an existing peer transitioned to online.
+  BLOS_EVENT_KIND_PEER_ONLINE = 4;
+
+  // PeerOffline reports that an existing peer transitioned to offline.
+  BLOS_EVENT_KIND_PEER_OFFLINE = 5;
+
+  // DerpChanged reports that the DERP region changed for the local node
+  // or a peer.
+  BLOS_EVENT_KIND_DERP_CHANGED = 6;
+
+  // Keepalive is a periodic stream liveness tick with no state change.
+  BLOS_EVENT_KIND_KEEPALIVE = 7;
+}
+
+// BLOSEvent describes a single state-change observed by the BLOS status
+// worker. Events are emitted wrapped in a StreamBLOSEventsResponse on
+// the StreamBLOSEvents RPC so operators can watch tunnel health in real
+// time without polling.
+message BLOSEvent {
+  // ts is the wall-clock time the event was observed on the daemon.
+  google.protobuf.Timestamp ts = 1;
+
+  // kind categorizes the event for client-side filtering.
+  BLOSEventKind kind = 2;
+
+  // subject identifies the resource the event is about — typically a
+  // peer hostname, an empty string for keepalive events, or "backend"
+  // for backend-state events.
+  string subject = 3;
+
+  // message is a human-readable one-line description suitable for a
+  // scrolling events log. Not intended for programmatic parsing.
+  string message = 4;
+}
+
+// StreamBLOSEventsResponse is the per-message envelope emitted by the
+// StreamBLOSEvents server-streaming RPC. The wrapper message exists so
+// the response type follows the buf convention (Stream<Method>Response)
+// while keeping BLOSEvent a reusable data type.
+message StreamBLOSEventsResponse {
+  // event is the BLOS state-change observation.
+  BLOSEvent event = 1;
+}

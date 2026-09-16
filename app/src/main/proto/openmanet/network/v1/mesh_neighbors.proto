@@ -1,0 +1,98 @@
+syntax = "proto3";
+
+package openmanet.network.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// MeshNeighbors is the Alfred payload published by every OpenMANET node
+// under DATA_TYPE_MESH_NEIGHBORS (103). Carries each node's view of its
+// direct L2 batman-adv neighbors, partitioned by the interface (RF vs
+// vxlan0 tunnel) on which each neighbor is heard, plus the publisher's
+// own best-route tree. Consumed by the mesh topology handler for
+// mesh-wide edge/segment classification and multi-hop chain resolution.
+message MeshNeighbors {
+  // Primary MAC of the publishing node. Redundant with Alfred's
+  // per-record Source envelope but convenient for downstream code that
+  // does not plumb the envelope through.
+  string primary_mac = 1;
+
+  // Base hostname ("_<iface>" suffix stripped). Lets consumers
+  // correlate to bat-hosts and vis by hostname when MACs disagree.
+  string hostname = 2;
+
+  // Batman-adv algorithm ID as reported by `batctl mj`. 4 = BATMAN_IV,
+  // 15 = BATMAN_V. Drives metric interpretation.
+  int32 algorithm = 3;
+
+  // Every direct batman-adv neighbor visible to the publishing node.
+  repeated MeshNeighbor neighbors = 4;
+
+  // Publisher's wall clock at refresh time. Consumers treat records
+  // older than 3x the publish interval as stale.
+  google.protobuf.Timestamp collected_at = 5;
+
+  // Publisher's own best-route tree (`batctl oj`, Best==true rows only).
+  // Enables remote-perspective my-paths rendering and multi-hop vxlan0
+  // chain resolution on the consumer side. Empty when the publisher is
+  // running in a reduced-bandwidth mode.
+  repeated Originator originators = 6;
+
+  // Lowercased MACs of every local layer-2 interface the publisher
+  // wants to be addressable by — bat0, bat-blos, vxlan0, wlan0, eth*,
+  // and so on. Always includes primary_mac. Receivers index records
+  // by every entry so a Lookup keyed on any one of them resolves the
+  // record in O(1), regardless of which interface MAC the caller has
+  // (alfred envelope, batadv-vis primary, originator next-hop, etc.).
+  // Critical in BLOS multi-mesh deployments where a single physical
+  // node is observed under different MACs by different consumers.
+  repeated string interface_macs = 7;
+}
+
+// MeshNeighbor records one direct batman-adv neighbor from the
+// publishing node's perspective.
+message MeshNeighbor {
+  // Neighbor's MAC (lowercased).
+  string mac = 1;
+
+  // Hard interface name the neighbor is reached on ("wlan0", "vxlan0",
+  // "eth0", etc.) as reported by `batctl nj`.
+  string hard_ifname = 2;
+
+  // Convenience: hard_ifname == "vxlan0". Pre-computed so downstream
+  // consumers do not re-implement the check.
+  bool blos = 3;
+
+  // Last-seen age in milliseconds (from `batctl nj`). 0 if unknown.
+  int32 last_seen_msecs = 4;
+
+  // BATMAN_V link throughput in kbps. 0 on BATMAN_IV or if unknown.
+  int64 throughput_kbps = 5;
+
+  // BATMAN_IV transmit quality (0-255). 0 on BATMAN_V or if unknown.
+  int32 tq = 6;
+}
+
+// Originator is one row of the publisher's best-route table (equivalent
+// to a single `Best==true` entry from `batctl oj`). The consumer uses
+// the mesh-wide collection of these rows to render remote nodes'
+// perspective overlays and to resolve multi-hop tunnel chains.
+message Originator {
+  // Destination MAC (lowercased).
+  string orig_mac = 1;
+
+  // Next hop the publisher would use to reach orig_mac (lowercased).
+  // Equal to orig_mac when orig_mac is a direct neighbor.
+  string next_hop_mac = 2;
+
+  // Publisher's hops to orig_mac. 1 for direct neighbors.
+  int32 hops = 3;
+
+  // Publisher's hard_ifname used for this route ("wlan0", "vxlan0", ...).
+  string hard_ifname = 4;
+
+  // BATMAN_V link throughput in kbps along this route. 0 on IV.
+  int64 throughput_kbps = 5;
+
+  // BATMAN_IV transmit quality (0-255). 0 on V.
+  int32 tq = 6;
+}

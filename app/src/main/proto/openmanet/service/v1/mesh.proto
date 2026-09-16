@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package openmanet.service.v1;
+
+import "google/protobuf/empty.proto";
+
+message MeshNeighbor {
+  // Neighbor node identifier.  This should be the hostname.interface_name
+  string neighbor = 1;
+
+  // Signal strength to the neighbor node
+  int32 signal_strength = 2;
+
+  // The hardware or MAC address of the neighbor node
+  string hardware_address = 3;
+
+  // signal quality to the neighbor node
+  int32 signal = 4;
+
+  // Last seen in miliseconds
+  int64 last_seen = 5;
+
+  // Throughput to the neighbor node in bit/s: the nl80211 station transmit
+  // bitrate, replaced by the batman-adv link throughput (from `batctl nj`,
+  // kbit/s scaled up) when the neighbor is known to batman-adv.
+  int32 throughput = 6;
+
+  // Rate the local radio last transmitted to this neighbor with.
+  LinkRate tx = 7;
+
+  // Rate the local radio last received from this neighbor with.
+  LinkRate rx = 8;
+
+  // Mesh wifi interface the station was seen on (e.g. "mesh1").
+  string interface = 9;
+}
+
+// LinkRate describes one direction of the nl80211 station rate: what the
+// driver last used to talk to this peer, as `iw station dump` prints it.
+message LinkRate {
+  // Phy is the modulation family the rate was negotiated with.
+  enum Phy {
+    // No rate information from the driver: bitrate_kbps falls back to the
+    // plain station bitrate, width_mhz is 0, mcs and nss are -1.
+    PHY_UNSPECIFIED = 0;
+
+    // 802.11a/b/g. mcs and nss are -1.
+    PHY_LEGACY = 1;
+
+    // 802.11n.
+    PHY_HT = 2;
+
+    // 802.11ac.
+    PHY_VHT = 3;
+
+    // 802.11ax.
+    PHY_HE = 4;
+
+    // 802.11be.
+    PHY_EHT = 5;
+  }
+
+  // Bitrate in kbit/s.
+  int32 bitrate_kbps = 1;
+
+  Phy phy = 2;
+
+  // Channel width the rate used, in MHz: 1/2/4/8/16 for S1G, 20/40/80/160/320
+  // otherwise (160 for 80+80). 0 when unknown.
+  int32 width_mhz = 3;
+
+  // MCS index, -1 when the PHY has none (legacy) or the driver did not
+  // report it.
+  int32 mcs = 4;
+
+  // Spatial streams, -1 when not reported.
+  int32 nss = 5;
+}
+
+// MeshNeighborService provides methods to retrieve mesh neighbor information.
+service MeshNeighborService {
+  // ListMeshNeighbors retrieves a list of all mesh neighbors for a given interface.
+  rpc ListMeshNeighbors(google.protobuf.Empty) returns (ListMeshNeighborsResponse);
+}
+
+message ListMeshNeighborsResponse {
+  // List of mesh neighbors
+  repeated MeshNeighbor neighbors = 1;
+}

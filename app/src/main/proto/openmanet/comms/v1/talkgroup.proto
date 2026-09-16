@@ -1,0 +1,150 @@
+syntax = "proto3";
+
+package openmanet.comms.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+// TalkGroupState is a read-only snapshot of the runtime send/receive direction
+// toggles for a single configured talkgroup port.
+message TalkGroupState {
+  // 1-based talkgroup number identifying this talkgroup.
+  int32 talkgroup = 1;
+
+  // Multicast address for this talkgroup.
+  string address = 2;
+
+  // UDP port for this talkgroup.
+  int32 port = 3;
+
+  // Whether RTP transmission is currently enabled on this talkgroup.
+  bool send_enabled = 4;
+
+  // Whether RTP reception is currently enabled on this talkgroup.
+  bool receive_enabled = 5;
+
+  // Callsign last received from a remote peer on this talkgroup.
+  string remote_callsign = 6;
+}
+
+// SetSendTalkGroupRequest enables or disables RTP transmission on the talkgroup
+// identified by its 1-based channel number.
+message SetSendTalkGroupRequest {
+  // The 1-based channel number of the talkgroup to configure.
+  int32 talkgroup = 1 [
+    (buf.validate.field).int32 = {
+      gte: 1
+      lte: 32
+    },
+    (buf.validate.field).int32.example = 1,
+    (buf.validate.field).int32.example = 3,
+    (buf.validate.field).int32.example = 5,
+    (buf.validate.field).int32.example = 7,
+    (buf.validate.field).int32.example = 9
+  ];
+
+  // Whether RTP transmission should be enabled on this talkgroup.
+  bool enabled = 2;
+}
+
+// SetSendTalkGroupResponse is returned after a SetSendTalkGroup request.
+message SetSendTalkGroupResponse {
+  // Indicates whether the request to join the talkgroup was successful.
+  bool success = 1;
+
+  // Optional message providing additional information about the join operation.
+  string message = 2;
+}
+
+// SetReceiveTalkGroupRequest enables or disables RTP reception on the talkgroup
+// identified by its 1-based channel number.
+message SetReceiveTalkGroupRequest {
+  // The 1-based channel number of the talkgroup to configure.
+  int32 talkgroup = 1 [
+    (buf.validate.field).int32 = {
+      gte: 1
+      lte: 32
+    },
+    (buf.validate.field).int32.example = 1,
+    (buf.validate.field).int32.example = 3,
+    (buf.validate.field).int32.example = 5,
+    (buf.validate.field).int32.example = 7,
+    (buf.validate.field).int32.example = 9
+  ];
+
+  // Whether RTP reception should be enabled on this talkgroup.
+  bool enabled = 2;
+}
+
+// SetReceiveTalkGroupResponse is returned after a SetReceiveTalkGroup request.
+message SetReceiveTalkGroupResponse {
+  // Indicates whether the request to join the talkgroup was successful.
+  bool success = 1;
+
+  // Optional message providing additional information about the join operation.
+  string message = 2;
+}
+
+// SelectTalkGroupRequest names the talk group to make exclusively active.
+message SelectTalkGroupRequest {
+  // The 1-based channel number of the talk group to select.
+  int32 talkgroup = 1 [(buf.validate.field).int32 = {
+    gte: 1
+    lte: 32
+  }];
+}
+
+// SelectTalkGroupResponse reports the outcome of a SelectTalkGroup call.
+message SelectTalkGroupResponse {
+  // Indicates whether the selection was applied.
+  bool success = 1;
+
+  // Optional message providing additional information.
+  string message = 2;
+}
+
+// TalkGroupEventKind distinguishes exclusive selections from single
+// direction toggles. Values mirror the daemon's internal talkgroup.Kind.
+enum TalkGroupEventKind {
+  TALK_GROUP_EVENT_KIND_UNSPECIFIED = 0;
+  TALK_GROUP_EVENT_KIND_SELECTED = 1;
+  TALK_GROUP_EVENT_KIND_DIRECTION = 2;
+}
+
+// TalkGroupEventSource identifies which control surface produced the
+// change. Values mirror the daemon's internal talkgroup.Source.
+enum TalkGroupEventSource {
+  TALK_GROUP_EVENT_SOURCE_UNSPECIFIED = 0;
+  TALK_GROUP_EVENT_SOURCE_RPC = 1;
+  TALK_GROUP_EVENT_SOURCE_GPIO = 2;
+  TALK_GROUP_EVENT_SOURCE_INIT = 3;
+}
+
+// TalkGroupEvent is a single talk group state-change observation.
+message TalkGroupEvent {
+  // What changed.
+  TalkGroupEventKind kind = 1;
+
+  // The 1-based talk group the event is about.
+  int32 talkgroup = 2;
+
+  // The previously active talk group (KIND_SELECTED only, 0 if none).
+  int32 prev_talkgroup = 3;
+
+  // Resulting send state for this talk group.
+  bool send_enabled = 4;
+
+  // Resulting receive state for this talk group.
+  bool receive_enabled = 5;
+
+  // Which control surface produced the change.
+  TalkGroupEventSource source = 6;
+
+  // When the change was applied.
+  google.protobuf.Timestamp at = 7;
+}
+
+// StreamTalkGroupEventsResponse wraps one event per stream message.
+message StreamTalkGroupEventsResponse {
+  TalkGroupEvent event = 1;
+}

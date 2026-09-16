@@ -1,0 +1,122 @@
+syntax = "proto3";
+
+package openmanet.wifi_config.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/empty.proto";
+import "openmanet/wifi_config/v1/wifi_config.proto";
+
+// WifiConfigService provides methods to retrieve and configure wireless
+// radio settings on the OpenMANET system.
+service WifiConfigService {
+  // ListRadios returns all physical radios available on the device.
+  rpc ListRadios(google.protobuf.Empty) returns (ListRadiosResponse);
+
+  // GetRadioStatus returns the current runtime status for a specific radio.
+  rpc GetRadioStatus(GetRadioStatusRequest) returns (GetRadioStatusResponse);
+
+  // GetRadioSettings returns the editable configuration for a specific radio,
+  // along with lists of valid options for drop-down menus.
+  rpc GetRadioSettings(GetRadioSettingsRequest) returns (GetRadioSettingsResponse);
+
+  // UpdateRadioSettings applies new configuration to a radio. The changes are
+  // committed and the wireless subsystem is reloaded.
+  rpc UpdateRadioSettings(UpdateRadioSettingsRequest) returns (UpdateRadioSettingsResponse);
+
+  // ListConnectedClients returns all clients connected to an AP-mode radio.
+  rpc ListConnectedClients(ListConnectedClientsRequest) returns (ListConnectedClientsResponse);
+
+  // ListMeshPeers returns all mesh peers visible to a mesh-mode radio.
+  rpc ListMeshPeers(ListMeshPeersRequest) returns (ListMeshPeersResponse);
+}
+
+// ListRadiosResponse contains the list of available radios.
+message ListRadiosResponse {
+  repeated Radio radios = 1;
+}
+
+// GetRadioStatusRequest identifies the radio to query.
+message GetRadioStatusRequest {
+  string radio_name = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.example = "radio0",
+    (buf.validate.field).string.example = "radio1",
+    (buf.validate.field).string.example = "radio2"
+  ];
+}
+
+// GetRadioStatusResponse contains the runtime status for a radio.
+message GetRadioStatusResponse {
+  RadioStatus status = 1;
+}
+
+// GetRadioSettingsRequest identifies the radio to query.
+message GetRadioSettingsRequest {
+  string radio_name = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.example = "radio0",
+    (buf.validate.field).string.example = "radio1",
+    (buf.validate.field).string.example = "radio2"
+  ];
+}
+
+// GetRadioSettingsResponse contains the current settings and available options.
+message GetRadioSettingsResponse {
+  RadioSettings settings = 1;
+
+  // Available channel options for the radio's band.
+  repeated string available_channels = 2;
+
+  // Available bandwidth / HTMode options for the radio's band.
+  repeated WifiHTMode available_bandwidths = 3;
+
+  // Available encryption options.
+  repeated WifiEncryption available_encryptions = 4;
+}
+
+// UpdateRadioSettingsRequest contains the radio name and new settings.
+message UpdateRadioSettingsRequest {
+  string radio_name = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.example = "radio0",
+    (buf.validate.field).string.example = "radio1",
+    (buf.validate.field).string.example = "radio2"
+  ];
+  RadioSettings settings = 2;
+}
+
+// UpdateRadioSettingsResponse indicates whether the update succeeded.
+message UpdateRadioSettingsResponse {
+  bool success = 1;
+  optional string message = 2;
+}
+
+// ListConnectedClientsRequest identifies the radio to query.
+message ListConnectedClientsRequest {
+  string radio_name = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.example = "radio0",
+    (buf.validate.field).string.example = "radio1",
+    (buf.validate.field).string.example = "radio2"
+  ];
+}
+
+// ListConnectedClientsResponse contains all connected AP clients.
+message ListConnectedClientsResponse {
+  repeated ConnectedClient clients = 1;
+}
+
+// ListMeshPeersRequest identifies the radio to query.
+message ListMeshPeersRequest {
+  string radio_name = 1 [
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.example = "radio0",
+    (buf.validate.field).string.example = "radio1",
+    (buf.validate.field).string.example = "radio2"
+  ];
+}
+
+// ListMeshPeersResponse contains all visible mesh peers.
+message ListMeshPeersResponse {
+  repeated MeshPeer peers = 1;
+}

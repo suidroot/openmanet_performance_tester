@@ -1,0 +1,124 @@
+syntax = "proto3";
+
+package openmanet.mesh_join.v1;
+
+import "buf/validate/validate.proto";
+import "openmanet/wifi_config/v1/wifi_config.proto";
+
+// MeshCredentials is everything a node needs to join one 802.11s mesh
+// link: identity, passphrase, encryption and the radio tuning every peer
+// must share. The same message describes the HaLow mesh and the optional
+// 2.4 GHz batman-adv backhaul.
+message MeshCredentials {
+  string mesh_id = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 32
+  }];
+
+  string passphrase = 2 [(buf.validate.field).string = {
+    min_len: 8
+    max_len: 63
+  }];
+
+  // Mesh links are always WPA3 (SAE). The field exists so a future
+  // encryption can be added without a wire break.
+  openmanet.wifi_config.v1.WifiEncryption encryption = 3 [(buf.validate.field).enum = {
+    defined_only: true
+    in: [1]
+  }];
+
+  // HaLow: 1, 2, 4 or 8. 2.4 GHz backhaul: 20 or 40.
+  uint32 bandwidth_mhz = 4 [(buf.validate.field).uint32 = {
+    in: [
+      1,
+      2,
+      4,
+      8,
+      20,
+      40,
+      80,
+      160
+    ]
+  }];
+
+  uint32 channel = 5 [(buf.validate.field).uint32.gt = 0];
+
+  // Regulatory domain code as written to `wireless.<radio>.country`
+  // ("US", "GB", "EU"). Empty when the source radio has none set.
+  string country_code = 6 [(buf.validate.field).string = {
+    max_len: 3
+    pattern: "^([A-Z]{2,3})?$"
+  }];
+}
+
+// MeshJoinPayload is the content of a "share mesh" QR code: serialized
+// as binary protobuf, base64url-encoded without padding and prefixed
+// with "OPENMANET1:". The prefix is the format version.
+message MeshJoinPayload {
+  // Hostname of the node that generated the code. Display only.
+  string source_hostname = 1 [(buf.validate.field).string.max_len = 63];
+
+  MeshCredentials halow = 2 [(buf.validate.field).required = true];
+
+  // Present only when the source node runs a 2.4 GHz mesh backhaul.
+  MeshCredentials backhaul = 3;
+}
+
+// GetMeshJoinQRResponse carries the payload three ways: decoded for the
+// on-screen summary, as the exact QR text, and rendered as SVG.
+message GetMeshJoinQRResponse {
+  MeshJoinPayload payload = 1;
+
+  // Exact QR content: "OPENMANET1:" + base64url(payload).
+  string payload_text = 2;
+
+  // The QR code as an SVG document: viewBox only (CSS sizes it),
+  // fill="currentColor", 4-module quiet zone included.
+  string svg = 3;
+}
+
+// ApplyMeshJoinRequest joins this node to the meshes in a scanned
+// payload. Radio overrides are optional; empty lets the server pick.
+message ApplyMeshJoinRequest {
+  MeshJoinPayload payload = 1 [(buf.validate.field).required = true];
+
+  // HaLow target. Empty = the wifi-device with type=morse (there must be
+  // exactly one).
+  string halow_radio = 2 [(buf.validate.field).string.max_len = 32];
+
+  // Backhaul target. Empty = the first non-morse radio whose linked
+  // wifi-iface is in mesh mode; when none exists the backhaul is skipped.
+  string backhaul_radio = 3 [(buf.validate.field).string.max_len = 32];
+}
+
+enum MeshJoinRadioRole {
+  MESH_JOIN_RADIO_ROLE_UNSPECIFIED = 0;
+
+  MESH_JOIN_RADIO_ROLE_HALOW = 1;
+
+  MESH_JOIN_RADIO_ROLE_BACKHAUL = 2;
+}
+
+enum MeshJoinRadioStatus {
+  MESH_JOIN_RADIO_STATUS_UNSPECIFIED = 0;
+
+  MESH_JOIN_RADIO_STATUS_APPLIED = 1;
+
+  // Only the backhaul can be skipped; `reason` says why.
+  MESH_JOIN_RADIO_STATUS_SKIPPED = 2;
+}
+
+message MeshJoinRadioResult {
+  string radio_name = 1;
+
+  MeshJoinRadioRole role = 2;
+
+  MeshJoinRadioStatus status = 3;
+
+  // Human-readable explanation, set when status is SKIPPED.
+  string reason = 4;
+}
+
+message ApplyMeshJoinResponse {
+  repeated MeshJoinRadioResult radios = 1;
+}

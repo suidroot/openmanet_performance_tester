@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package openmanet.network.v1;
+
+message AddressReservation {
+  // Address Reservation is deprecated, the data from Node is used instead.
+  option deprecated = true;
+  // MAC address of the node
+  string mac = 1;
+  // Static IP addresses of the node
+  string static_ip = 2;
+  // Reservation CIDR of the node
+  string reservation_cidr = 3;
+  // UCI DHCP start address
+  string uci_dhcp_start = 4;
+  // UCI DHCP limit is the number of addresses to reserve
+  string uci_dhcp_limit = 5;
+  // Whether the node is requesting a reservation
+  bool requesting_reservation = 6;
+}
+
+message Node {
+  // MAC address of the node
+  string mac = 1;
+  // Hostname of the node
+  string hostname = 2;
+  // IP address of the node
+  string ipaddr = 3;
+  // Position of the node
+  Position position = 4;
+  // UCI DHCP start address
+  string uci_dhcp_start = 5;
+  // UCI DHCP limit is the number of addresses to reserve
+  string uci_dhcp_limit = 6;
+}
+
+message Position {
+  // Latitude of the node
+  double latitude = 1;
+  // Longitude of the node
+  double longitude = 2;
+  // Altitude of the node
+  float altitude = 3;
+}

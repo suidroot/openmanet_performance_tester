@@ -1,0 +1,327 @@
+syntax = "proto3";
+
+package openmanet.sysupgrade.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+// SystemInfo describes the running OpenMANET/OpenWrt system in the level
+// of detail required to decide whether a sysupgrade is possible and which
+// firmware image to choose.
+message SystemInfo {
+  // Hostname is the kernel hostname (e.g. "BCM2711-1003").
+  string hostname = 1;
+
+  // Distribution is DISTRIB_ID, e.g. "OpenWrt".
+  string distribution = 2;
+
+  // Release is DISTRIB_RELEASE, e.g. "23.05.3".
+  string release = 3;
+
+  // Revision is DISTRIB_REVISION, e.g. "r23809-234f1a2efa".
+  string revision = 4;
+
+  // Target is DISTRIB_TARGET, e.g. "bcm27xx/bcm2711". This is the key
+  // used to match the device to the correct sysupgrade firmware image.
+  string target = 5;
+
+  // BoardName is /etc/board.json model.id, e.g. "bcm2711,mm8108-usb".
+  string board_name = 6;
+
+  // Model is the human-friendly model name, e.g. "RPI RPI4-MM8108 (USB)".
+  string model = 7;
+
+  // Description is DISTRIB_DESCRIPTION, e.g. "OpenWrt 23.05.3 / OpenMANET 1.7.0".
+  string description = 8;
+
+  // OpenmanetVersion is the OpenMANET semver parsed from description,
+  // e.g. "1.7.0". Empty when the description does not contain a
+  // recognizable OpenMANET version.
+  string openmanet_version = 9;
+
+  // Kernel is the running kernel version, e.g. "6.6.102".
+  string kernel = 10;
+
+  // Architecture is the CPU machine name, e.g. "aarch64".
+  string architecture = 11;
+
+  // BuildDate is DISTRIB_BUILD_DATE when present.
+  string build_date = 12;
+
+  // SysupgradeCapable is true when all preconditions (binary present,
+  // squashfs root, /overlay mounted) are satisfied.
+  bool sysupgrade_capable = 13;
+
+  // SysupgradeCapableReason is a short human-readable summary of why
+  // SysupgradeCapable is the value it is, e.g. "ok", "no
+  // /sbin/sysupgrade", "rootfs is ext4, not squashfs".
+  string sysupgrade_capable_reason = 14;
+
+  // RootfsType is the filesystem type of the root mount, e.g.
+  // "squashfs".
+  string rootfs_type = 15;
+}
+
+// Asset is a single binary file attached to a GitHub release.
+message Asset {
+  // Name is the filename, e.g.
+  // "openmanet-1.8.0-bcm27xx-bcm2711-mm8108-usb-squashfs-sysupgrade.img.gz".
+  string name = 1;
+
+  // DownloadUrl is the public download URL for this asset.
+  string download_url = 2;
+
+  // SizeBytes is the file size in bytes.
+  int64 size_bytes = 3;
+}
+
+// Release is a single OpenMANET firmware release.
+message Release {
+  // Tag is the GitHub release tag, e.g. "v1.8.0".
+  string tag = 1;
+
+  // Name is the human-friendly release name (often the same as tag).
+  string name = 2;
+
+  // Body is the release notes (markdown).
+  string body = 3;
+
+  // PublishedAt is the GitHub publication timestamp.
+  google.protobuf.Timestamp published_at = 4;
+
+  // Prerelease is true when GitHub marked this release as a pre-release.
+  bool prerelease = 5;
+
+  // Version is the parsed semver of the tag, e.g. "1.8.0". Empty when
+  // the tag does not parse.
+  string version = 6;
+
+  // Assets is the list of files attached to this release.
+  repeated Asset assets = 7;
+}
+
+// StagedImage is a firmware image that has been uploaded by the
+// operator and is sitting on disk waiting to be flashed. Single-slot:
+// the manager tracks at most one staged image at a time, replacing the
+// previous file (if any) on a successful re-upload.
+//
+// Hardware compatibility is decided by parsing the OpenWrt FWx0
+// metadata trailer that `fwtool` appends to every sysupgrade image —
+// matching what LuCI's flash page does. The parsed device list is
+// compared against /etc/board.json's model.id (or the first compatible
+// string of /proc/device-tree/compatible). Filename pattern matching
+// is no longer used.
+message StagedImage {
+  // Filename is the original filename supplied by the uploader (e.g.
+  // "openmanet-1.9.0-bcm27xx-bcm2711-mm8108-usb-squashfs-sysupgrade.img.gz").
+  // Display only.
+  string filename = 1;
+
+  // SizeBytes is the size of the on-disk image.
+  int64 size_bytes = 2;
+
+  // Sha256 is the lowercase hex sha256 digest of the staged file,
+  // computed by the daemon as the bytes were streamed in.
+  string sha256 = 3;
+
+  // UploadedAt is the wall-clock timestamp the upload finalized.
+  google.protobuf.Timestamp uploaded_at = 4;
+
+  reserved 5;
+  reserved "filename_matches_target";
+
+  // PreflightOk is true when "sysupgrade -T" returned success against
+  // the staged image, false otherwise. When false, PreflightError
+  // carries the captured stderr line.
+  bool preflight_ok = 6;
+
+  // PreflightError is the captured short error line from a failed
+  // preflight; empty when PreflightOk is true.
+  string preflight_error = 7;
+
+  // MetadataPresent is true when a FWx0 INFO trailer was found in the
+  // image and decoded successfully. False for factory images and for
+  // third-party builds whose Makefile did not declare SUPPORTED_DEVICES.
+  bool metadata_present = 8;
+
+  // CompatVersion is the image's compat_version field (e.g. "1.0").
+  // Empty when MetadataPresent is false. Major-version mismatches are
+  // a hard incompatibility in OpenWrt sysupgrade.
+  string compat_version = 9;
+
+  // CompatMessage is the optional human-readable compat_message from
+  // the image; surfaced to the operator when present.
+  string compat_message = 10;
+
+  // SupportedDevices is the effective device list — i.e.
+  // new_supported_devices when CompatVersion != "1.0", otherwise
+  // supported_devices. Each entry is a device-tree compatible string
+  // such as "raspberrypi,4-model-b" or "vendor,mm6108-spi".
+  repeated string supported_devices = 11;
+
+  // DeviceCompat is the running device's first compatible string,
+  // sourced from /etc/board.json model.id (preferred) or the first
+  // null-separated token of /proc/device-tree/compatible.
+  string device_compat = 12;
+
+  // ImageCompatible is true when DeviceCompat appears verbatim in
+  // SupportedDevices. Always false when MetadataPresent is false (no
+  // list to match against, so the image cannot be vouched for from
+  // metadata alone).
+  bool image_compatible = 13;
+}
+
+// Update is a single available upgrade target — a release combined with
+// the asset that matches the local hardware.
+message Update {
+  // Release is the upgrade's release metadata.
+  Release release = 1;
+
+  // MatchedAsset is the asset filename selected for the local hardware.
+  Asset matched_asset = 2;
+
+  // NewerThanCurrent is true when the release version is strictly
+  // greater than the locally installed OpenMANET version. False when
+  // the current version cannot be parsed.
+  bool newer_than_current = 3;
+}
+
+// SysupgradeOptions maps directly to the OpenWrt sysupgrade(1) script
+// flags. Booleans become the corresponding flag when true; string fields
+// become "-x value" when non-empty.
+message SysupgradeOptions {
+  // -n: do NOT preserve config (incompatible with preserve_changed_etc).
+  bool no_preserve_config = 1;
+
+  // -c: preserve changed files in /etc/.
+  bool preserve_changed_etc = 2;
+
+  // -o: preserve all files in / (overlay).
+  bool preserve_overlay = 3;
+
+  // -u: skip from-package files when saving config.
+  bool skip_package_files = 4;
+
+  // -k: include /etc/config and files from sysupgrade.conf in the saved
+  // configuration archive.
+  bool include_etc_config = 5;
+
+  // -f <path>: restore configuration from this .tar.gz before flashing.
+  string config_archive_path = 6 [(buf.validate.field).string.max_len = 256];
+
+  // -T: verify image and config archive without performing the upgrade.
+  bool test_only = 7;
+
+  // -F: flash even if checks fail (force).
+  bool force = 8;
+
+  // -q: less verbose.
+  bool quiet = 9;
+
+  // -v: more verbose.
+  bool verbose = 10;
+
+  // -b <path>: create a backup at this path instead of upgrading.
+  string backup_path = 11 [(buf.validate.field).string.max_len = 256];
+
+  // -r <path>: restore a backup at this path instead of upgrading.
+  string restore_path = 12 [(buf.validate.field).string.max_len = 256];
+
+  // -p: preserve partition table entries (specific images only).
+  bool preserve_partitions = 13;
+
+  // -e: erase partitions (specific platforms only).
+  bool erase_partitions = 14;
+}
+
+// Phase is the high-level state of the sysupgrade manager.
+enum Phase {
+  PHASE_UNSPECIFIED = 0;
+  PHASE_IDLE = 1;
+  PHASE_CHECKING = 2;
+  PHASE_DOWNLOADING = 3;
+  PHASE_VERIFYING = 4;
+  PHASE_READY = 5;
+  PHASE_UPGRADING = 6;
+  PHASE_FAILED = 7;
+}
+
+// ProgressEvent is one observable transition or per-chunk progress
+// update emitted by the sysupgrade manager. Streamed via
+// StreamUpgradeProgress and also returned as a snapshot by
+// GetUpgradeStatus.
+message ProgressEvent {
+  // Phase is the current high-level state.
+  Phase phase = 1;
+
+  // Percent is the per-phase progress, 0-100. Meaningful only for
+  // phase=PHASE_DOWNLOADING.
+  int32 percent = 2;
+
+  // BytesDone is the number of bytes downloaded so far.
+  int64 bytes_done = 3;
+
+  // BytesTotal is the total byte count of the in-flight asset (-1 if
+  // not yet known).
+  int64 bytes_total = 4;
+
+  // Message is a short human-readable status line.
+  string message = 5;
+
+  // Error is non-empty when phase=PHASE_FAILED.
+  string error = 6;
+
+  // ReleaseTag is the currently-selected release tag, if any.
+  string release_tag = 7;
+
+  // AssetName is the currently-selected asset filename, if any.
+  string asset_name = 8;
+
+  // ChildPid is populated once sysupgrade has been exec'd with
+  // setsid+nohup; zero before that.
+  int32 child_pid = 9;
+
+  // UpdatedAt is the timestamp this event was generated.
+  google.protobuf.Timestamp updated_at = 10;
+
+  // LogTail is the trailing portion of /sbin/sysupgrade's
+  // stdout+stderr log captured when the detached child exits without
+  // rebooting the device. Populated only on PhaseFailed transitions
+  // originating in the child watcher; empty for every other phase.
+  string log_tail = 11;
+}
+
+// FactoryResetCapability summarizes whether the running OS supports
+// factory reset (overlay wipe + reboot, equivalent to LuCI's "Perform
+// Reset" button) and exposes the discovery details so the UI can
+// surface "why not" when capability is false. Mirrors LuCI's flash.js
+// render check: an overlayfs mount at / OR a rootfs_data partition in
+// /proc/mtd, plus the firstboot helper.
+message FactoryResetCapability {
+  // Capable is true when the device has both an overlay AND firstboot
+  // is installed and executable.
+  bool capable = 1;
+
+  // Reason is a short human-readable summary: "ok",
+  // "no rootfs_data partition or overlayfs mount",
+  // "firstboot not present at /sbin/firstboot", etc.
+  string reason = 2;
+
+  // OverlayMountpoint is the matched line from /proc/mounts when an
+  // overlay was found at /, e.g. "overlayfs:/overlay /". Empty when
+  // discovered via /proc/mtd instead.
+  string overlay_mountpoint = 3;
+
+  // BackingFs describes where the overlay state actually lives. Either
+  // the fstype reported by /proc/mounts ("overlay"), or
+  // "mtd:rootfs_data" when only the MTD partition was found.
+  string backing_fs = 4;
+
+  // FirstbootPath is the resolved path to the firstboot helper, set
+  // only when capable=true.
+  string firstboot_path = 5;
+
+  // Hostname is the device's current hostname, surfaced so the UI can
+  // use it as the typed-confirmation target without an extra round trip.
+  string hostname = 6;
+}

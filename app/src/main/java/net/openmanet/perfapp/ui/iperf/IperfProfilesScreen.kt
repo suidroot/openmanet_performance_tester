@@ -1,0 +1,146 @@
+package net.openmanet.perfapp.ui.iperf
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import net.openmanet.perfapp.data.entities.IperfProfile
+
+@Composable
+fun IperfProfilesScreen(
+    onRunProfile: (profileId: Long) -> Unit,
+    onRunAdHoc: () -> Unit,
+    viewModel: IperfProfilesViewModel = hiltViewModel(),
+) {
+    val profiles by viewModel.profiles.collectAsStateWithLifecycle()
+
+    var name by remember { mutableStateOf("") }
+    var host by remember { mutableStateOf("") }
+    var port by remember { mutableStateOf("5201") }
+    var durationSeconds by remember { mutableStateOf("10") }
+    var protocol by remember { mutableStateOf("TCP") }
+    var reverse by remember { mutableStateOf(false) }
+
+    Scaffold(
+        topBar = { TopAppBar(title = { Text("iperf3 profiles") }) },
+    ) { padding ->
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            if (profiles.isEmpty()) {
+                Text("No saved profiles yet.", modifier = Modifier.padding(16.dp))
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                    items(profiles, key = { it.id }) { profile ->
+                        ProfileRow(
+                            profile = profile,
+                            onRun = { onRunProfile(profile.id) },
+                            onDelete = { viewModel.delete(profile) },
+                        )
+                        HorizontalDivider()
+                    }
+                }
+            }
+
+            Button(onClick = onRunAdHoc, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                Text("Run without saving…")
+            }
+
+            HorizontalDivider()
+
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("New profile", style = MaterialTheme.typography.titleMedium)
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Profile name") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = host,
+                    onValueChange = { host = it },
+                    label = { Text("Server address") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = port,
+                        onValueChange = { port = it },
+                        label = { Text("Port") },
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        value = durationSeconds,
+                        onValueChange = { durationSeconds = it },
+                        label = { Text("Duration (s)") },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = protocol == "TCP", onClick = { protocol = "TCP" }, label = { Text("TCP") })
+                    FilterChip(selected = protocol == "UDP", onClick = { protocol = "UDP" }, label = { Text("UDP") })
+                    FilterChip(selected = reverse, onClick = { reverse = !reverse }, label = { Text("Reverse") })
+                }
+                Button(
+                    onClick = {
+                        viewModel.save(
+                            IperfProfile(
+                                name = name,
+                                host = host,
+                                port = port.toIntOrNull() ?: 5201,
+                                protocol = protocol,
+                                durationSeconds = durationSeconds.toIntOrNull() ?: 10,
+                                reverse = reverse,
+                            ),
+                        )
+                        name = ""
+                        host = ""
+                    },
+                    enabled = name.isNotBlank() && host.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Save profile")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileRow(profile: IperfProfile, onRun: () -> Unit, onDelete: () -> Unit) {
+    ListItem(
+        headlineContent = { Text(profile.name) },
+        supportingContent = {
+            Text("${profile.host}:${profile.port} • ${profile.protocol} • ${profile.durationSeconds}s${if (profile.reverse) " • reverse" else ""}")
+        },
+        trailingContent = {
+            Row {
+                Button(onClick = onRun) { Text("Run") }
+                Button(onClick = onDelete) { Text("Delete") }
+            }
+        },
+    )
+}

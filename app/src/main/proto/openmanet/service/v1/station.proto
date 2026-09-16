@@ -1,0 +1,88 @@
+syntax = "proto3";
+
+package openmanet.service.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/duration.proto";
+
+// StationInfo represents statistics and information for a connected station.
+message StationInfo {
+  // The interface index that this station is associated with.
+  int32 interface_index = 1;
+
+  // The hardware address (MAC) of the station.
+  string hardware_address = 2 [(buf.validate.field).string.min_len = 1];
+
+  // The time since the station last connected.
+  google.protobuf.Duration connected = 3;
+
+  // The time since wireless activity last occurred.
+  google.protobuf.Duration inactive = 4;
+
+  // The number of bytes received by this station.
+  int64 received_bytes = 5;
+
+  // The number of bytes transmitted by this station.
+  int64 transmitted_bytes = 6;
+
+  // The number of packets received by this station.
+  int64 received_packets = 7;
+
+  // The number of packets transmitted by this station.
+  int64 transmitted_packets = 8;
+
+  // The current data receive bitrate, in bits/second.
+  int64 receive_bitrate = 9;
+
+  // The current data transmit bitrate, in bits/second.
+  int64 transmit_bitrate = 10;
+
+  // The signal strength of the last received PPDU, in dBm.
+  int32 signal = 11;
+
+  // The average signal strength, in dBm.
+  int32 signal_average = 12;
+
+  // The number of times the station has had to retry while sending a packet.
+  int64 transmit_retries = 13;
+
+  // The number of times a packet transmission failed.
+  int64 transmit_failed = 14;
+
+  // The number of times a beacon loss was detected.
+  int64 beacon_loss = 15;
+}
+
+// StationService provides methods to retrieve station statistics.
+service StationService {
+  // ListStations retrieves a list of all stations, optionally filtered.
+  rpc ListStations(ListStationsRequest) returns (ListStationsResponse);
+
+  // GetStation retrieves information for a specific station.
+  rpc GetStation(GetStationRequest) returns (GetStationResponse);
+}
+
+// Request message for listing stations.
+message ListStationsRequest {
+  // Optional: Filter stations by interface index.
+  optional int32 interface_index = 1;
+}
+
+// Response message containing a list of stations.
+message ListStationsResponse {
+  repeated StationInfo stations = 1;
+}
+
+// Request message for getting a specific station.
+message GetStationRequest {
+  // The hardware address of the station to retrieve.
+  string hardware_address = 1 [(buf.validate.field).string.min_len = 1];
+
+  // Optional: The interface index to look up the station on.
+  optional int32 interface_index = 2;
+}
+
+message GetStationResponse {
+  // Station information
+  StationInfo station = 1;
+}

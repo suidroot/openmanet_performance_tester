@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package openmanet.network_interface.v1;
+
+// InterfaceType classifies a network interface by its link layer.
+enum InterfaceType {
+  INTERFACE_TYPE_UNSPECIFIED = 0;
+  INTERFACE_TYPE_BRIDGE = 1;
+  INTERFACE_TYPE_ETHERNET = 2;
+  INTERFACE_TYPE_WIFI_AP = 3;
+  INTERFACE_TYPE_HALOW_MESH = 4;
+  INTERFACE_TYPE_BATMAN = 5;
+  INTERFACE_TYPE_LOOPBACK = 6;
+  INTERFACE_TYPE_VXLAN = 7;
+}
+
+// InterfaceStatus indicates the operational state of an interface.
+enum InterfaceStatus {
+  INTERFACE_STATUS_UNSPECIFIED = 0;
+  INTERFACE_STATUS_UP = 1;
+  INTERFACE_STATUS_DOWN = 2;
+}
+
+// NetworkInterface describes a single network interface on the system.
+message NetworkInterface {
+  // The kernel name of the interface (e.g. "br-ahwlan", "eth0", "bat0").
+  string name = 1;
+
+  // The classified type of the interface.
+  InterfaceType type = 2;
+
+  // The primary IPv4 address in CIDR notation (e.g. "10.41.25.72/16").
+  // Empty if no address is assigned.
+  string ip_address = 3;
+
+  // The hardware (MAC) address of the interface.
+  string mac_address = 4;
+
+  // The current operational status.
+  InterfaceStatus status = 5;
+
+  // Total bytes received on this interface.
+  uint64 rx_bytes = 6;
+
+  // Total bytes transmitted on this interface.
+  uint64 tx_bytes = 7;
+
+  // The maximum transmission unit in bytes.
+  int32 mtu = 8;
+}
+
+// Response message for listing network interfaces.
+message ListNetworkInterfacesResponse {
+  // All network interfaces currently present on the system.
+  repeated NetworkInterface interfaces = 1;
+}

@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+package openmanet.comms.v1;
+
+import "buf/validate/validate.proto";
+
+// SendPTTEventRequest carries a PTT state change from the web client.
+message SendPTTEventRequest {
+  // PTT event type: 0 = PTTDown (begin TX), 1 = PTTUp (end TX),
+  // 2 = PTTToggle (toggle TX state).
+  int32 event = 1;
+}
+
+// SendPTTEventResponse is returned after a SendPTTEvent request.
+message SendPTTEventResponse {
+  // Whether the PTT event was successfully delivered.
+  bool success = 1;
+}
+
+// StreamAudioTxRequest carries a single Opus-encoded audio frame (48 kHz,
+// mono, 20 ms) from the web client to the server for mesh transmission.
+message StreamAudioTxRequest {
+  // Raw Opus-encoded frame bytes.
+  bytes opus_data = 1;
+
+  // Monotonic sequence number for ordering and loss detection.
+  uint32 sequence = 2;
+}
+
+// StreamAudioRxResponse carries a single Opus-encoded audio frame (48 kHz,
+// mono, 20 ms) from the server to the web client.
+message StreamAudioRxResponse {
+  // Raw Opus-encoded frame bytes.
+  bytes opus_data = 1;
+
+  // Monotonic sequence number for ordering and loss detection.
+  uint32 sequence = 2;
+
+  // Callsign of the remote peer whose audio this frame belongs to.
+  // Empty if the sender did not include a callsign extension.
+  string callsign = 3;
+
+  // 1-based talk group channel this frame was received on. 0 when the
+  // server predates this field or the receiving port has no talk group
+  // mapping; consumers should treat 0 as channel 1 for compatibility.
+  int32 talkgroup = 4;
+}
+
+// StreamAudioTxResponse is returned when the client closes the TX stream.
+message StreamAudioTxResponse {
+  // Total number of audio frames received from the client.
+  uint32 frames_received = 1;
+}
+
+// StreamAudioRxRequest initiates a server-streaming RX audio session.
+message StreamAudioRxRequest {}
+
+// AudioMixerState is a point-in-time reading of the hardware mixer on the
+// device's sound card (the OpenVLM / CM108B in production). Optional
+// fields are absent when the corresponding ALSA control does not exist on
+// the card.
+message AudioMixerState {
+  // Whether an ALSA card was resolved. When false every other field is
+  // absent/empty.
+  bool available = 1;
+
+  // Playback (speaker) volume percent.
+  optional int32 speaker_volume = 2;
+
+  // Capture (microphone) volume percent.
+  optional int32 mic_volume = 3;
+
+  // Auto Gain Control switch. When enabled the CM108B adjusts capture
+  // gain itself and manual mic_volume changes may appear ineffective.
+  optional bool agc_enabled = 4;
+
+  // Resolved raw ALSA element name backing speaker_volume ("" if absent).
+  string speaker_control = 5;
+
+  // Resolved raw ALSA element name backing mic_volume ("" if absent).
+  string mic_control = 6;
+
+  // Resolved raw ALSA element name backing agc_enabled ("" if absent).
+  string agc_control = 7;
+}
+
+// GetAudioMixerResponse carries the current hardware mixer state.
+message GetAudioMixerResponse {
+  AudioMixerState state = 1;
+}
+
+// UpdateAudioMixerRequest applies a partial hardware mixer update: only
+// fields that are set are written. Volumes are persisted to the daemon
+// config and re-applied at startup; hardware VOL+/VOL- button presses are
+// deliberately not persisted.
+message UpdateAudioMixerRequest {
+  optional int32 speaker_volume = 1 [(buf.validate.field).int32 = {
+    gte: 0
+    lte: 100
+  }];
+
+  optional int32 mic_volume = 2 [(buf.validate.field).int32 = {
+    gte: 0
+    lte: 100
+  }];
+
+  optional bool agc_enabled = 3;
+}
+
+// UpdateAudioMixerResponse carries the mixer state after the update.
+message UpdateAudioMixerResponse {
+  AudioMixerState state = 1;
+}

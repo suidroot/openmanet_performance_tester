@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+package openmanet.network_interface.v1;
+
+// DHCPServerConfig describes the DHCP server settings for a network interface.
+message DHCPServerConfig {
+  // The UCI interface name the DHCP pool is bound to (e.g. "BR-AHWLAN").
+  string interface_name = 1;
+
+  // The first assignable IP address in the DHCP range.
+  string range_start = 2;
+
+  // The last assignable IP address in the DHCP range.
+  string range_end = 3;
+
+  // The lease duration as a human-readable string (e.g. "12h").
+  string lease_time = 4;
+
+  // Whether DNS forwarding is enabled for this DHCP pool.
+  bool dns_forwarding_enabled = 5;
+
+  // The number of currently active DHCP leases.
+  int32 active_lease_count = 6;
+}
+
+// Response message for retrieving DHCP server configuration.
+message GetDHCPServerConfigResponse {
+  // The DHCP server configuration.
+  DHCPServerConfig config = 1;
+}
+
+// ActiveDHCPLease represents a currently active DHCP lease.
+message ActiveDHCPLease {
+  // The hostname of the leased device, if available.
+  string hostname = 1;
+
+  // The MAC address of the leased device.
+  string mac_address = 2;
+
+  // The leased IPv4 address.
+  string ip_address = 3;
+
+  // Seconds remaining until the lease expires.
+  int32 expires_seconds = 4;
+}
+
+// Response message for listing active DHCP leases.
+message ListActiveDHCPLeasesResponse {
+  // All currently active DHCP leases.
+  repeated ActiveDHCPLease leases = 1;
+}
+
+// StaticDHCPLease represents a manually configured static DHCP reservation.
+message StaticDHCPLease {
+  // The hostname for the static reservation.
+  string hostname = 1;
+
+  // The MAC address for the static reservation.
+  string mac_address = 2;
+
+  // The reserved IPv4 address.
+  string ip_address = 3;
+}
+
+// Response message for listing static DHCP leases.
+message ListStaticDHCPLeasesResponse {
+  // All configured static DHCP reservations.
+  repeated StaticDHCPLease leases = 1;
+}

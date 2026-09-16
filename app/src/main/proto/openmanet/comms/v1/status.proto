@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package openmanet.comms.v1;
+
+import "openmanet/comms/v1/talkgroup.proto";
+
+// GetCommsStatusResponse represents the current communication status of the OpenMANET node.
+message GetCommsStatusResponse {
+  // The active talkgroup the node is currently participating in.
+  int32 active_talkgroup = 1;
+
+  // Available talkgroups that the node can join.
+  repeated int32 available_talkgroups = 2;
+
+  // Per-port direction state for all configured talkgroups. Empty when the
+  // comms subsystem is not running.
+  repeated TalkGroupState talkgroup_states = 3;
+
+  // The local operator callsign currently configured.
+  string callsign = 4;
+
+  // Codec label for the active broadcast encoder, e.g. "OPUS 32K".
+  // Empty when comms is disabled.
+  string codec = 5;
+
+  // Packet time (frame duration) in milliseconds for the active encoder.
+  // Zero when comms is disabled.
+  int32 ptime_ms = 6;
+
+  // Round-trip time to the comms peer group in milliseconds, measured from
+  // RTCP SR/RR reports. Zero when no measurement is available.
+  int32 round_trip_ms = 7;
+}

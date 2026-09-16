@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package openmanet.service.v1;
+
+import "google/protobuf/empty.proto";
+
+// ServiceStatus represents the current status of the OpenMANET node.
+message ServiceStatus {
+  // Indicates whether the node is connected to other nodes on the mesh.
+  bool is_connected = 1;
+
+  // Number of connected neighbors.
+  int32 connected_neighbors = 2;
+
+  // Number of mesh interfaces active.
+  int32 active_mesh_interfaces = 3;
+
+  // Indicates whether the node is functioning as a mesh gateway.
+  bool is_mesh_gateway = 4;
+
+  // Current position of the node.
+  Position position = 5;
+
+  // selected_gateway_mac is the originator MAC of the batman-adv gateway
+  // currently marked as "best" on this node (i.e. `batctl gwl` best row).
+  // Empty when batman-adv has no gateways announced on the tailnet, when
+  // this node runs in server mode and is itself the gateway, or when
+  // `batctl gwj` fails. The MAC can be cross-referenced with the mesh
+  // topology node list to resolve a hostname / IP for display.
+  string selected_gateway_mac = 6;
+}
+
+// Position represents the geographical position of the node if available.
+message Position {
+  // Latitude of the node
+  double latitude = 1;
+  // Longitude of the node
+  double longitude = 2;
+  // Altitude of the node
+  float altitude = 3;
+  // Number of satellites in view
+  int32 satellites_in_view = 4;
+}
+
+// StatusService provides methods to retrieve the status of the OpenMANET service.
+service StatusService {
+  // Retrieves the current status of the OpenMANET service.
+  rpc GetServiceStatus(google.protobuf.Empty) returns (GetServiceStatusResponse);
+}
+
+message GetServiceStatusResponse {
+  // The current status of the OpenMANET service.
+  ServiceStatus status = 1;
+}
