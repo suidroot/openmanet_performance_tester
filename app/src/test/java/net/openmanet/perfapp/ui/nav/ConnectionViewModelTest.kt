@@ -16,6 +16,7 @@ import net.openmanet.perfapp.core.AppClock
 import net.openmanet.perfapp.data.dao.NodeProfileDao
 import net.openmanet.perfapp.data.entities.NodeProfile
 import net.openmanet.perfapp.rpc.AuthRepository
+import net.openmanet.perfapp.rpc.OpenManetClientFactory
 import net.openmanet.perfapp.rpc.SessionTokenHolder
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -36,6 +37,7 @@ class ConnectionViewModelTest {
     private lateinit var sessionTokenHolder: SessionTokenHolder
     private lateinit var nodeCredentialStore: NodeCredentialStore
     private lateinit var defaultGatewayResolver: DefaultGatewayResolver
+    private lateinit var clientFactory: OpenManetClientFactory
     private lateinit var viewModel: ConnectionViewModel
 
     private val testNode = PendingNode(ip = "10.41.1.1", displayName = "manet01")
@@ -49,6 +51,7 @@ class ConnectionViewModelTest {
         nodeCredentialStore = mock()
         defaultGatewayResolver = mock()
         whenever(defaultGatewayResolver.currentGatewayAddress()).thenReturn(null)
+        clientFactory = mock()
         viewModel = ConnectionViewModel(
             nodeProfileDao,
             authRepository,
@@ -56,6 +59,7 @@ class ConnectionViewModelTest {
             nodeCredentialStore,
             defaultGatewayResolver,
             FakeAppClock(),
+            clientFactory,
         )
     }
 

@@ -12,9 +12,12 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import net.openmanet.perfapp.data.dao.TestSessionDao
+import net.openmanet.perfapp.iperf.IperfConfig
 import net.openmanet.perfapp.ping.PingTarget
 import net.openmanet.perfapp.rpc.NodeRepository
+import net.openmanet.perfapp.session.ActiveIperfSessionHolder
 import net.openmanet.perfapp.session.ActiveSessionHolder
+import net.openmanet.perfapp.session.IperfSessionManager
 import net.openmanet.perfapp.session.TestSessionManager
 import net.openmanet.perfapp.settings.DisabledNodesRepository
 import javax.inject.Inject
@@ -28,9 +31,18 @@ class SessionViewModel @Inject constructor(
     private val nodeRepository: NodeRepository,
     private val disabledNodesRepository: DisabledNodesRepository,
     private val testSessionDao: TestSessionDao,
+    activeIperfSessionHolder: ActiveIperfSessionHolder,
+    private val iperfSessionManager: IperfSessionManager,
 ) : ViewModel() {
 
     val activeSessionId: StateFlow<String?> = activeSessionHolder.sessionId
+
+    /** These three just forward IperfSessionService's state/control - iperf is a fully
+     * independent, standalone test (see IperfCard), not part of this ping/GPS session; exposed
+     * here purely so the Dashboard (which already holds a SessionViewModel) doesn't need a
+     * second ViewModel just to show iperf status/Stop next to everything else. */
+    val iperfRunningConfig: StateFlow<IperfConfig?> = activeIperfSessionHolder.config
+    fun stopIperf() = iperfSessionManager.stop()
 
     private val _pingTargets = MutableStateFlow<List<PingTarget>>(emptyList())
     val pingTargets: StateFlow<List<PingTarget>> = _pingTargets.asStateFlow()

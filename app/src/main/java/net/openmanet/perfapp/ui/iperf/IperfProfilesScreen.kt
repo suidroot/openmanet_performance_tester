@@ -28,6 +28,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import net.openmanet.perfapp.data.entities.IperfProfile
 import net.openmanet.perfapp.iperf.IperfEngine
+import net.openmanet.perfapp.iperf.mbpsTextToBitsPerSecond
 
 @Composable
 fun IperfProfilesScreen(
@@ -44,6 +45,7 @@ fun IperfProfilesScreen(
     var durationSeconds by remember { mutableStateOf("10") }
     var protocol by remember { mutableStateOf("TCP") }
     var reverse by remember { mutableStateOf(false) }
+    var maxBandwidthMbps by remember { mutableStateOf("") }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("IPERF PROFILES") }) },
@@ -127,6 +129,12 @@ fun IperfProfilesScreen(
                     FilterChip(selected = protocol == "UDP", onClick = { protocol = "UDP" }, label = { Text("UDP") })
                     FilterChip(selected = reverse, onClick = { reverse = !reverse }, label = { Text("Reverse") })
                 }
+                OutlinedTextField(
+                    value = maxBandwidthMbps,
+                    onValueChange = { maxBandwidthMbps = it },
+                    label = { Text("Max bandwidth (Mbit/s, optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Button(
                     onClick = {
                         viewModel.save(
@@ -138,10 +146,12 @@ fun IperfProfilesScreen(
                                 durationSeconds = durationSeconds.toIntOrNull() ?: 10,
                                 reverse = reverse,
                                 engine = engine.name,
+                                maxBitsPerSecond = maxBandwidthMbps.mbpsTextToBitsPerSecond(),
                             ),
                         )
                         name = ""
                         host = ""
+                        maxBandwidthMbps = ""
                     },
                     enabled = name.isNotBlank() && host.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(),

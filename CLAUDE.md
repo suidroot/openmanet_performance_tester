@@ -129,8 +129,19 @@ node itself.
 
 - Every time-series entity carries `sessionId` + `timestampMs`, indexed together, and belongs to
   a `TestSession` row. `session/TestSessionService` (foreground service) is the only thing that
-  should start continuous collection (ping/GPS/CoT); iperf3 runs are discrete, user-triggered, but
-  still get tagged with whatever session is currently active.
+  starts *persisted* continuous collection (ping/GPS/CoT rows written to Room); iperf3 runs are
+  discrete, user-triggered, but still get tagged with whatever session is currently active.
+  GPS is the one exception to "collection only happens during a session": position must be
+  visible on the dashboard at all times, not just while logging is on (confirmed as a real bug -
+  the dashboard's GPS card went blank the moment logging stopped, even though ATAK on the same
+  device kept receiving the mesh's position broadcasts the whole time). `gps/GpsRepository` has a
+  second, non-persisting set of collectors (`collectLiveDeviceFixes`/`collectLiveMeshFixes`)
+  that `ui/dashboard/DashboardViewModel` starts in its own `viewModelScope` whenever the dashboard
+  is visible, writing only to `gps/LiveGpsHolder` (never Room) - independent of whether
+  `TestSessionService` is also running its session-persisting collectors. Both sets can run
+  concurrently (dashboard open + logging on) without double-counting Room rows, at the cost of
+  briefly joining the mesh multicast group twice - a real but minor duplication, preferred over
+  gating live display on logging being on.
 - Room entities that wrap a `.proto`-derived RPC message (e.g. `NeighborSnapshot`) keep a
   `rawJson`/raw-field fallback column alongside typed fields, as a hedge against the vendored
   proto schema changing without every mapping site being updated in lockstep.

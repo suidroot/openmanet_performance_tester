@@ -1,8 +1,13 @@
 package net.openmanet.perfapp.ui.dashboard
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -14,10 +19,11 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import net.openmanet.perfapp.core.AppClock
-import net.openmanet.perfapp.data.dao.GpsFixDao
 import net.openmanet.perfapp.data.dao.PingResultDao
 import net.openmanet.perfapp.data.entities.GpsFix
 import net.openmanet.perfapp.data.entities.PingResult
+import net.openmanet.perfapp.gps.GpsRepository
+import net.openmanet.perfapp.gps.LiveGpsHolder
 import net.openmanet.perfapp.rpc.MeshNeighbor
 import net.openmanet.perfapp.rpc.MeshNode
 import net.openmanet.perfapp.rpc.MeshStatus
@@ -82,11 +88,13 @@ class DashboardViewModel @Inject constructor(
     private val neighborRepository: NeighborRepository,
     private val statusRepository: StatusRepository,
     private val meshTopologyRepository: MeshTopologyRepository,
-    private val gpsFixDao: GpsFixDao,
     private val pingResultDao: PingResultDao,
     private val activeSessionHolder: ActiveSessionHolder,
     private val refreshSettingsRepository: RefreshSettingsRepository,
     private val gpsPreferenceRepository: GpsPreferenceRepository,
+    private val gpsRepository: GpsRepository,
+    private val liveGpsHolder: LiveGpsHolder,
+    @ApplicationContext private val context: Context,
     private val clock: AppClock,
 ) : ViewModel() {
 
@@ -96,17 +104,31 @@ class DashboardViewModel @Inject constructor(
     val refreshIntervalMs: StateFlow<Long> = refreshSettingsRepository.intervalMs
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RefreshSettingsRepository.DEFAULT_INTERVAL_MS)
 
-    /** Most recent GPS fix for whichever session is currently active. Prefers the user's chosen
-     * source (Settings - device GPS or the mesh's CoT multicast feed) if it has produced a fix;
-     * falls back to whichever source is actually available otherwise, rather than showing
+    init {
+        // Position should be visible on the dashboard whenever it's open, not only while a
+        // logging session happens to be running - see GpsRepository's class doc. Launched in
+        // viewModelScope (not tied to any session), so it starts as soon as the dashboard opens
+        // and stops automatically when the ViewModel is cleared (navigating away).
+        gpsRepository.collectLiveMeshFixes(viewModelScope)
+        if (hasLocationPermission()) {
+            gpsRepository.collectLiveDeviceFixes(viewModelScope)
+        }
+    }
+
+    private fun hasLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+
+    /** Most recent GPS fix from any source, live and independent of whether a logging session is
+     * active (see LiveGpsHolder/GpsRepository). Prefers the user's chosen source (Settings -
+     * device GPS, the mesh's CoT multicast feed, or the node's own NMEA GNSS) if it has produced
+     * a fix; falls back to whichever source is actually available otherwise, rather than showing
      * nothing just because the preferred source hasn't reported yet. */
     val latestGpsFix: StateFlow<GpsFix?> = combine(
-        activeSessionHolder.sessionId.flatMapLatest { sessionId ->
-            if (sessionId == null) flowOf(emptyList()) else gpsFixDao.observeForSession(sessionId)
-        },
+        liveGpsHolder.fixesBySource,
         gpsPreferenceRepository.preferredSource,
-    ) { fixes, preferred ->
-        fixes.lastOrNull { it.source == preferred } ?: fixes.lastOrNull()
+    ) { bySource, preferred ->
+        bySource[preferred] ?: bySource.values.maxByOrNull { it.timestampMs }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** Most recent ping result per target host for whichever session is currently active. */

@@ -17,6 +17,7 @@ import net.openmanet.perfapp.core.AppClock
 import net.openmanet.perfapp.data.dao.NodeProfileDao
 import net.openmanet.perfapp.data.entities.NodeProfile
 import net.openmanet.perfapp.rpc.AuthRepository
+import net.openmanet.perfapp.rpc.OpenManetClientFactory
 import net.openmanet.perfapp.rpc.SessionTokenHolder
 import javax.inject.Inject
 
@@ -36,6 +37,7 @@ class ConnectionViewModel @Inject constructor(
     private val nodeCredentialStore: NodeCredentialStore,
     private val defaultGatewayResolver: DefaultGatewayResolver,
     private val clock: AppClock,
+    private val clientFactory: OpenManetClientFactory,
 ) : ViewModel() {
 
     val savedNodes: StateFlow<List<NodeProfile>> = nodeProfileDao.observeAll()
@@ -82,6 +84,9 @@ class ConnectionViewModel @Inject constructor(
             viewModelScope.launch { authRepository.logout(nodeIp) }
         }
         sessionTokenHolder.token = null
+        // Releases the cached RPC OkHttpClient's dispatcher threads/connections (see
+        // OpenManetClientFactory's doc comment) rather than leaving them idling until GC.
+        clientFactory.close()
         _state.value = ConnectionState.EnteringNodeAddress
     }
 }

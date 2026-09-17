@@ -28,15 +28,17 @@ object ManetRoutes {
     const val SETTINGS = "settings"
     const val PING = "ping/{sessionId}?nodeIp={nodeIp}"
     const val GPS = "gps/{sessionId}"
-    const val IPERF_PROFILES = "iperf_profiles/{sessionId}"
-    const val IPERF = "iperf/{sessionId}?profileId={profileId}"
+    const val IPERF_PROFILES = "iperf_profiles/{nodeIp}"
+    const val IPERF = "iperf/{nodeIp}?profileId={profileId}"
     const val SESSIONS = "sessions"
     const val EXPORT = "export/{sessionId}"
 
     fun ping(sessionId: String, nodeIp: String) = "ping/$sessionId?nodeIp=$nodeIp"
     fun gps(sessionId: String) = "gps/$sessionId"
-    fun iperfProfiles(sessionId: String) = "iperf_profiles/$sessionId"
-    fun iperf(sessionId: String, profileId: Long = -1L) = "iperf/$sessionId?profileId=$profileId"
+    // iperf is a standalone test, not gated on the ping/GPS logging session being active - it's
+    // keyed by the connected node's address, not a sessionId (see IperfSessionService).
+    fun iperfProfiles(nodeIp: String) = "iperf_profiles/$nodeIp"
+    fun iperf(nodeIp: String, profileId: Long = -1L) = "iperf/$nodeIp?profileId=$profileId"
     fun export(sessionId: String) = "export/$sessionId"
 }
 
@@ -82,7 +84,7 @@ fun ManetNavHost(navController: NavHostController = rememberNavController()) {
             DashboardScreen(
                 connectionViewModel = connectionViewModel,
                 onOpenGps = { sessionId -> navController.navigate(ManetRoutes.gps(sessionId)) },
-                onOpenIperf = { sessionId -> navController.navigate(ManetRoutes.iperfProfiles(sessionId)) },
+                onOpenIperf = { nodeIp -> navController.navigate(ManetRoutes.iperfProfiles(nodeIp)) },
                 onOpenSessions = { navController.navigate(ManetRoutes.SESSIONS) },
                 onOpenExport = { sessionId -> navController.navigate(ManetRoutes.export(sessionId)) },
                 onOpenSettings = { navController.navigate(ManetRoutes.SETTINGS) },
@@ -108,18 +110,18 @@ fun ManetNavHost(navController: NavHostController = rememberNavController()) {
         }
         composable(
             route = ManetRoutes.IPERF_PROFILES,
-            arguments = listOf(navArgument("sessionId") { type = NavType.StringType }),
+            arguments = listOf(navArgument("nodeIp") { type = NavType.StringType }),
         ) { backStackEntry ->
-            val sessionId = backStackEntry.arguments?.getString("sessionId").orEmpty()
+            val nodeIp = backStackEntry.arguments?.getString("nodeIp").orEmpty()
             IperfProfilesScreen(
-                onRunProfile = { profileId -> navController.navigate(ManetRoutes.iperf(sessionId, profileId)) },
-                onRunAdHoc = { navController.navigate(ManetRoutes.iperf(sessionId)) },
+                onRunProfile = { profileId -> navController.navigate(ManetRoutes.iperf(nodeIp, profileId)) },
+                onRunAdHoc = { navController.navigate(ManetRoutes.iperf(nodeIp)) },
             )
         }
         composable(
             route = ManetRoutes.IPERF,
             arguments = listOf(
-                navArgument("sessionId") { type = NavType.StringType },
+                navArgument("nodeIp") { type = NavType.StringType },
                 navArgument("profileId") { type = NavType.LongType; defaultValue = -1L },
             ),
         ) {

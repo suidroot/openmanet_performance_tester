@@ -32,6 +32,8 @@ import net.openmanet.perfapp.data.entities.IperfResult
 import net.openmanet.perfapp.iperf.IperfConfig
 import net.openmanet.perfapp.iperf.IperfEngine
 import net.openmanet.perfapp.iperf.IperfProtocol
+import net.openmanet.perfapp.iperf.bitsPerSecondToMbpsText
+import net.openmanet.perfapp.iperf.mbpsTextToBitsPerSecond
 import net.openmanet.perfapp.ui.theme.Sparkline
 
 @Composable
@@ -47,6 +49,7 @@ fun IperfScreen(viewModel: IperfViewModel = hiltViewModel()) {
     var durationSeconds by remember { mutableStateOf("10") }
     var protocol by remember { mutableStateOf(IperfProtocol.TCP) }
     var reverse by remember { mutableStateOf(false) }
+    var maxBandwidthMbps by remember { mutableStateOf("") }
 
     LaunchedEffect(initialConfig) {
         initialConfig?.let { config ->
@@ -56,6 +59,7 @@ fun IperfScreen(viewModel: IperfViewModel = hiltViewModel()) {
             durationSeconds = config.durationSeconds.toString()
             protocol = config.protocol
             reverse = config.reverse
+            maxBandwidthMbps = config.maxBitsPerSecond.bitsPerSecondToMbpsText()
         }
     }
 
@@ -134,24 +138,41 @@ fun IperfScreen(viewModel: IperfViewModel = hiltViewModel()) {
                     enabled = !isRunning,
                 )
             }
-
-            Button(
-                onClick = {
-                    viewModel.start(
-                        IperfConfig(
-                            host = host,
-                            port = port.toIntOrNull() ?: engine.defaultPort,
-                            protocol = protocol,
-                            durationSeconds = durationSeconds.toIntOrNull() ?: 10,
-                            reverse = reverse,
-                            engine = engine,
-                        ),
-                    )
-                },
-                enabled = !isRunning && host.isNotBlank(),
+            OutlinedTextField(
+                value = maxBandwidthMbps,
+                onValueChange = { maxBandwidthMbps = it },
+                label = { Text("Max bandwidth (Mbit/s, optional)") },
+                enabled = !isRunning,
                 modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(if (isRunning) "Running…" else "Start test")
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        viewModel.start(
+                            IperfConfig(
+                                host = host,
+                                port = port.toIntOrNull() ?: engine.defaultPort,
+                                protocol = protocol,
+                                durationSeconds = durationSeconds.toIntOrNull() ?: 10,
+                                reverse = reverse,
+                                engine = engine,
+                                maxBitsPerSecond = maxBandwidthMbps.mbpsTextToBitsPerSecond(),
+                            ),
+                        )
+                    },
+                    enabled = !isRunning && host.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(if (isRunning) "Running…" else "Start")
+                }
+                Button(
+                    onClick = { viewModel.stop() },
+                    enabled = isRunning,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Stop")
+                }
             }
 
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }

@@ -28,4 +28,15 @@ data class IperfConfig(
     /** -R: server sends, client receives - measures downlink instead of uplink. */
     val reverse: Boolean = false,
     val engine: IperfEngine = IperfEngine.V3,
+    /** -b: caps the target send rate (bits/sec). Both engines default to unlimited (as fast as
+     * possible) for TCP if this is null; UDP engines default to a low fixed rate (~1 Mbit/s)
+     * instead, so leaving this null for a UDP test isn't "unlimited" the way it is for TCP. */
+    val maxBitsPerSecond: Long? = null,
 )
+
+/** Parses a "Max bandwidth (Mbit/s)" form field into bits/sec, or null if blank/invalid - shared
+ * by IperfScreen and IperfProfilesScreen so the two forms can't drift apart on this conversion. */
+fun String.mbpsTextToBitsPerSecond(): Long? = toDoubleOrNull()?.let { (it * 1_000_000).toLong() }
+
+/** The inverse of [mbpsTextToBitsPerSecond], for seeding a form field from a saved value. */
+fun Long?.bitsPerSecondToMbpsText(): String = this?.let { (it / 1_000_000.0).toString() }.orEmpty()

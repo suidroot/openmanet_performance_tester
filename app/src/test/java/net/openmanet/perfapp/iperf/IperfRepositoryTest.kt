@@ -38,7 +38,7 @@ class IperfRepositoryTest {
         whenever(dao.insert(any())).thenReturn(42L, 43L)
 
         val repository = IperfRepository(processRunner, dao, clock)
-        val results = repository.run("session-1", IperfConfig(host = "10.41.1.2")).toList()
+        val results = repository.run("session-1", "run-1", IperfConfig(host = "10.41.1.2")).toList()
 
         assertEquals(2, results.size)
         assertEquals(listOf(42L, 43L), results.map { it.id })

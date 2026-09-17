@@ -14,4 +14,5 @@ data class IperfProfile(
     val durationSeconds: Int,
     val reverse: Boolean,
     val engine: String = "V3", // "V2" | "V3" - see iperf/IperfEngine
+    val maxBitsPerSecond: Long? = null,
 )

@@ -95,6 +95,11 @@ fun SettingsScreen(
                     onClick = { viewModel.setPreferredGpsSource(GpsSource.COT) },
                     label = { Text("Multicast (CoT)") },
                 )
+                FilterChip(
+                    selected = preferredGpsSource == GpsSource.NODE_GNSS,
+                    onClick = { viewModel.setPreferredGpsSource(GpsSource.NODE_GNSS) },
+                    label = { Text("Node GNSS (NMEA)") },
+                )
             }
 
             Text("Session history", modifier = Modifier.padding(top = 16.dp))

@@ -41,6 +41,8 @@ import net.openmanet.perfapp.connectivity.ConnectionState
 import net.openmanet.perfapp.data.entities.GpsFix
 import net.openmanet.perfapp.data.entities.GpsSource
 import net.openmanet.perfapp.data.entities.PingResult
+import net.openmanet.perfapp.iperf.IperfConfig
+import net.openmanet.perfapp.iperf.IperfEngine
 import net.openmanet.perfapp.ui.nav.ConnectionViewModel
 import net.openmanet.perfapp.ui.session.SessionViewModel
 import net.openmanet.perfapp.ui.theme.Sparkline
@@ -58,7 +60,7 @@ import java.util.Locale
 fun DashboardScreen(
     connectionViewModel: ConnectionViewModel,
     onOpenGps: (sessionId: String) -> Unit,
-    onOpenIperf: (sessionId: String) -> Unit,
+    onOpenIperf: (nodeIp: String) -> Unit,
     onOpenSessions: () -> Unit,
     onOpenExport: (sessionId: String) -> Unit,
     onOpenSettings: () -> Unit,
@@ -74,6 +76,7 @@ fun DashboardScreen(
     val activeSessionId by sessionViewModel.activeSessionId.collectAsStateWithLifecycle()
     val pingTargets by sessionViewModel.pingTargets.collectAsStateWithLifecycle()
     val disabledHostnames by sessionViewModel.disabledHostnames.collectAsStateWithLifecycle()
+    val iperfRunningConfig by sessionViewModel.iperfRunningConfig.collectAsStateWithLifecycle()
     val coroutineScope = rememberCoroutineScope()
 
     // Permissions are requested only when the user actually flips the logging toggle on, not
@@ -106,24 +109,7 @@ fun DashboardScreen(
                         Text(connected.node.ip, style = MaterialTheme.typography.bodySmall, color = TerminalTextSecondary)
                     }
                 },
-                actions = {
-                    Text(
-                        "LOG",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = TerminalTextSecondary,
-                    )
-                    Switch(
-                        checked = activeSessionId != null,
-                        onCheckedChange = { checked ->
-                            if (checked) {
-                                permissionLauncher.launch(sessionPermissions())
-                            } else {
-                                sessionViewModel.stop()
-                            }
-                        },
-                    )
-                    TextButton(onClick = onOpenSettings) { Text("SETTINGS") }
-                },
+                actions = { TextButton(onClick = onOpenSettings) { Text("SETTINGS") } },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
             )
         },
@@ -143,13 +129,22 @@ fun DashboardScreen(
 
             MeshPeersCard(uiState)
             LinkQualityCard(uiState, refreshIntervalMs)
+            TestSessionCard(
+                isRunning = activeSessionId != null,
+                onStart = { permissionLauncher.launch(sessionPermissions()) },
+                onStop = { sessionViewModel.stop() },
+            )
             NodesSection(
                 peers = peerCards,
                 disabledHostnames = disabledHostnames,
                 pingTargetCount = pingTargets.size,
                 onSetDisabled = sessionViewModel::setNodeDisabled,
             )
-            IperfCard(onOpenIperf = { onOpenIperf(activeSessionId ?: return@IperfCard) })
+            IperfCard(
+                runningConfig = iperfRunningConfig,
+                onOpenIperf = { onOpenIperf(connected.node.ip) },
+                onStop = sessionViewModel::stopIperf,
+            )
             GpsStatusCard(
                 fix = latestGpsFix,
                 onOpenGps = { onOpenGps(activeSessionId ?: return@GpsStatusCard) },
@@ -375,18 +370,47 @@ private fun PingResultRow(ping: PingResult?) {
     }
 }
 
+/** Explicit Start/Stop for the continuous ping/GPS/neighbor-snapshot logging session - logging
+ * is opt-in, so this is the only thing that starts it (Start requests location/notification
+ * permissions first if needed). */
+@Composable
+private fun TestSessionCard(isRunning: Boolean, onStart: () -> Unit, onStop: () -> Unit) {
+    TerminalCard(title = "Test Session") {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            StatusDot(active = isRunning, modifier = Modifier.padding(end = 8.dp))
+            Text(
+                if (isRunning) "Logging ping/GPS" else "Not logging",
+                color = if (isRunning) TerminalGreen else TerminalTextSecondary,
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+            Button(onClick = onStart, enabled = !isRunning, modifier = Modifier.weight(1f)) { Text("Start") }
+            Button(onClick = onStop, enabled = isRunning, modifier = Modifier.weight(1f)) { Text("Stop") }
+        }
+    }
+}
+
 /**
  * iperf (v2 or v3, picked per test/profile - see IperfEngine) is a standalone, user-triggered
- * test, not part of the continuous ping/GPS session - its own card so it doesn't read as gated
- * by (or part of) that session, even though a run still gets tagged with whatever session
- * happens to be active for time-series correlation.
+ * test, not part of the continuous ping/GPS session above - runs via IperfSessionService, a
+ * separate foreground service, so it keeps running (and is stoppable from here) regardless of
+ * whether the logging session above is on and regardless of which screen is visible.
  */
 @Composable
-private fun IperfCard(onOpenIperf: () -> Unit) {
+private fun IperfCard(runningConfig: IperfConfig?, onOpenIperf: () -> Unit, onStop: () -> Unit) {
     TerminalCard(title = "iperf") {
-        Text("Standalone throughput test against a configured server.", color = TerminalTextSecondary)
-        Button(onClick = onOpenIperf, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-            Text("Run iperf test")
+        if (runningConfig != null) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                StatusDot(active = true, modifier = Modifier.padding(end = 8.dp))
+                val engineLabel = if (runningConfig.engine == IperfEngine.V2) "iperf2" else "iperf3"
+                Text("Running $engineLabel: ${runningConfig.host}:${runningConfig.port}", color = TerminalGreen)
+            }
+            Button(onClick = onStop, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Stop") }
+        } else {
+            Text("Standalone throughput test against a configured server.", color = TerminalTextSecondary)
+            Button(onClick = onOpenIperf, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                Text("Run iperf test")
+            }
         }
     }
 }

@@ -63,6 +63,7 @@ class IperfProcessRunner @Inject constructor(
             }
             if (config.protocol == IperfProtocol.UDP) add("-u")
             if (config.reverse) add("-R")
+            config.maxBitsPerSecond?.let { bps -> add("-b"); add(bps.toString()) }
             if (localAddress != null) {
                 add("-B"); add(localAddress)
             }
