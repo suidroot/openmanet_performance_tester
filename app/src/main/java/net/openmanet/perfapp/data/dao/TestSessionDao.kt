@@ -16,9 +16,15 @@ interface TestSessionDao {
     @Query("SELECT * FROM test_session WHERE sessionId = :sessionId")
     suspend fun getById(sessionId: String): TestSession?
 
+    @Query("SELECT * FROM test_session WHERE nodeId = :nodeIp ORDER BY startedAtMs DESC LIMIT 1")
+    suspend fun getMostRecentForNode(nodeIp: String): TestSession?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(session: TestSession)
 
     @Update
     suspend fun update(session: TestSession)
+
+    @Query("DELETE FROM test_session")
+    suspend fun deleteAll()
 }

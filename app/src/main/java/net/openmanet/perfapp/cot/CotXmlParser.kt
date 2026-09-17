@@ -1,11 +1,15 @@
 package net.openmanet.perfapp.cot
 
+import android.util.Log
 import org.w3c.dom.Element
 import org.xml.sax.InputSource
 import java.io.StringReader
 import java.time.Instant
 import java.time.format.DateTimeParseException
 import javax.xml.parsers.DocumentBuilderFactory
+import javax.xml.parsers.ParserConfigurationException
+
+private const val TAG = "CotXmlParser"
 
 /**
  * Parses Cursor-on-Target XML event stanzas broadcast on the SA multicast group (239.2.3.1:6969
@@ -20,8 +24,23 @@ import javax.xml.parsers.DocumentBuilderFactory
 object CotXmlParser {
     private val factory = DocumentBuilderFactory.newInstance().apply {
         isNamespaceAware = false
-        // XXE hardening: CoT payloads come from the network, never trust embedded DOCTYPEs.
-        setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+        // XXE hardening, best-effort: Android's built-in DocumentBuilderFactory
+        // (org.apache.harmony.xml...) doesn't support the standard "disallow-doctype-decl"
+        // feature and throws ParserConfigurationException for it - confirmed on-device, and
+        // since this ran in this object's field initializer (<clinit>), it crashed the whole app
+        // the moment the very first real CoT packet was ever received (this had never fired
+        // before, since nothing had touched CotXmlParser until then). A thrown
+        // ParserConfigurationException here is not an Exception subtype the caller's try/catch
+        // in parse() could have caught anyway (a failed <clinit> raises ExceptionInInitializerError,
+        // and Kotlin object initialization only runs once - a failure here would have permanently
+        // broken the class). Android's parser doesn't resolve external entities/DTDs over the
+        // network by default regardless, so skipping an unsupported feature is defense in depth
+        // lost, not a real vulnerability opened.
+        try {
+            setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+        } catch (e: ParserConfigurationException) {
+            Log.w(TAG, "disallow-doctype-decl unsupported by this device's XML parser, skipping", e)
+        }
         isExpandEntityReferences = false
     }
 

@@ -25,6 +25,7 @@ import net.openmanet.perfapp.data.entities.TestSession
 import net.openmanet.perfapp.gps.GpsRepository
 import net.openmanet.perfapp.ping.PingCollector
 import net.openmanet.perfapp.ping.PingTarget
+import net.openmanet.perfapp.rpc.NeighborSnapshotCollector
 import java.util.UUID
 import javax.inject.Inject
 
@@ -40,6 +41,7 @@ class TestSessionService : Service() {
     @Inject lateinit var testSessionDao: TestSessionDao
     @Inject lateinit var pingCollector: PingCollector
     @Inject lateinit var gpsRepository: GpsRepository
+    @Inject lateinit var neighborSnapshotCollector: NeighborSnapshotCollector
     @Inject lateinit var activeSessionHolder: ActiveSessionHolder
     @Inject lateinit var clock: AppClock
 
@@ -86,6 +88,9 @@ class TestSessionService : Service() {
         jobs += gpsRepository.collectCotFixes(sessionId, serviceScope)
         if (hasLocationPermission()) {
             jobs += gpsRepository.collectDeviceFixes(sessionId, serviceScope)
+        }
+        if (nodeId != null) {
+            jobs += neighborSnapshotCollector.collect(sessionId, nodeId, PingCollector.DEFAULT_INTERVAL_MS, serviceScope)
         }
         collectionJobs = jobs
     }

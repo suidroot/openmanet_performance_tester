@@ -81,10 +81,11 @@ fun ManetNavHost(navController: NavHostController = rememberNavController()) {
         composable(ManetRoutes.DASHBOARD) {
             DashboardScreen(
                 connectionViewModel = connectionViewModel,
-                onOpenPing = { sessionId, nodeIp -> navController.navigate(ManetRoutes.ping(sessionId, nodeIp)) },
                 onOpenGps = { sessionId -> navController.navigate(ManetRoutes.gps(sessionId)) },
                 onOpenIperf = { sessionId -> navController.navigate(ManetRoutes.iperfProfiles(sessionId)) },
                 onOpenSessions = { navController.navigate(ManetRoutes.SESSIONS) },
+                onOpenExport = { sessionId -> navController.navigate(ManetRoutes.export(sessionId)) },
+                onOpenSettings = { navController.navigate(ManetRoutes.SETTINGS) },
             )
         }
         composable(ManetRoutes.SETTINGS) {

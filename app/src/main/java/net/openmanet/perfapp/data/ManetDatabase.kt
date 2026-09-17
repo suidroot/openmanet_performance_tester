@@ -37,7 +37,7 @@ import net.openmanet.perfapp.data.entities.TestSession
         IperfResult::class,
         IperfProfile::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)

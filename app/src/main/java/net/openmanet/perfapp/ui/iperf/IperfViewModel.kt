@@ -11,6 +11,7 @@ import kotlinx.coroutines.launch
 import net.openmanet.perfapp.data.dao.IperfProfileDao
 import net.openmanet.perfapp.data.entities.IperfResult
 import net.openmanet.perfapp.iperf.IperfConfig
+import net.openmanet.perfapp.iperf.IperfEngine
 import net.openmanet.perfapp.iperf.IperfProtocol
 import net.openmanet.perfapp.iperf.IperfRepository
 import javax.inject.Inject
@@ -47,6 +48,7 @@ class IperfViewModel @Inject constructor(
                         protocol = if (profile.protocol == "UDP") IperfProtocol.UDP else IperfProtocol.TCP,
                         durationSeconds = profile.durationSeconds,
                         reverse = profile.reverse,
+                        engine = if (profile.engine == IperfEngine.V2.name) IperfEngine.V2 else IperfEngine.V3,
                     )
                 }
             }
@@ -64,7 +66,7 @@ class IperfViewModel @Inject constructor(
                     _samples.value = _samples.value + result
                 }
             } catch (e: Exception) {
-                _error.value = e.message ?: "iperf3 failed"
+                _error.value = e.message ?: "iperf failed"
             } finally {
                 _isRunning.value = false
             }

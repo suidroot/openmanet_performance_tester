@@ -4,27 +4,31 @@ import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -32,18 +36,17 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-import androidx.compose.material3.HorizontalDivider
+import kotlinx.coroutines.launch
 import net.openmanet.perfapp.connectivity.ConnectionState
 import net.openmanet.perfapp.data.entities.GpsFix
 import net.openmanet.perfapp.data.entities.GpsSource
 import net.openmanet.perfapp.data.entities.PingResult
-import net.openmanet.perfapp.ping.PingTarget
 import net.openmanet.perfapp.ui.nav.ConnectionViewModel
 import net.openmanet.perfapp.ui.session.SessionViewModel
+import net.openmanet.perfapp.ui.theme.Sparkline
 import net.openmanet.perfapp.ui.theme.StatRow
 import net.openmanet.perfapp.ui.theme.StatusDot
 import net.openmanet.perfapp.ui.theme.TerminalCard
-import net.openmanet.perfapp.ui.theme.TerminalCyan
 import net.openmanet.perfapp.ui.theme.TerminalGreen
 import net.openmanet.perfapp.ui.theme.TerminalOutline
 import net.openmanet.perfapp.ui.theme.TerminalTextSecondary
@@ -54,10 +57,11 @@ import java.util.Locale
 @Composable
 fun DashboardScreen(
     connectionViewModel: ConnectionViewModel,
-    onOpenPing: (sessionId: String, nodeIp: String) -> Unit,
     onOpenGps: (sessionId: String) -> Unit,
     onOpenIperf: (sessionId: String) -> Unit,
     onOpenSessions: () -> Unit,
+    onOpenExport: (sessionId: String) -> Unit,
+    onOpenSettings: () -> Unit,
     dashboardViewModel: DashboardViewModel = hiltViewModel(),
     sessionViewModel: SessionViewModel = hiltViewModel(),
 ) {
@@ -70,14 +74,16 @@ fun DashboardScreen(
     val activeSessionId by sessionViewModel.activeSessionId.collectAsStateWithLifecycle()
     val pingTargets by sessionViewModel.pingTargets.collectAsStateWithLifecycle()
     val disabledHostnames by sessionViewModel.disabledHostnames.collectAsStateWithLifecycle()
+    val coroutineScope = rememberCoroutineScope()
 
+    // Permissions are requested only when the user actually flips the logging toggle on, not
+    // automatically on connect - logging is opt-in now, not implicit.
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
-    ) { sessionViewModel.autoStart(connected.node.ip) }
+    ) { sessionViewModel.start(connected.node.ip) }
 
     LaunchedEffect(connected.node.ip) {
         dashboardViewModel.refresh(connected.node.ip)
-        permissionLauncher.launch(sessionPermissions())
     }
 
     // Auto-refresh on a configurable interval (Settings), restarting the loop whenever the
@@ -100,6 +106,24 @@ fun DashboardScreen(
                         Text(connected.node.ip, style = MaterialTheme.typography.bodySmall, color = TerminalTextSecondary)
                     }
                 },
+                actions = {
+                    Text(
+                        "LOG",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = TerminalTextSecondary,
+                    )
+                    Switch(
+                        checked = activeSessionId != null,
+                        onCheckedChange = { checked ->
+                            if (checked) {
+                                permissionLauncher.launch(sessionPermissions())
+                            } else {
+                                sessionViewModel.stop()
+                            }
+                        },
+                    )
+                    TextButton(onClick = onOpenSettings) { Text("SETTINGS") }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
             )
         },
@@ -119,26 +143,33 @@ fun DashboardScreen(
 
             MeshPeersCard(uiState)
             LinkQualityCard(uiState, refreshIntervalMs)
-            PeerNodeCards(
+            NodesSection(
                 peers = peerCards,
                 disabledHostnames = disabledHostnames,
+                pingTargetCount = pingTargets.size,
                 onSetDisabled = sessionViewModel::setNodeDisabled,
             )
-            GpsStatusCard(latestGpsFix)
-            TestSessionCard(
-                activeSessionId = activeSessionId,
-                pingTargets = pingTargets,
-                onOpenPing = { onOpenPing(activeSessionId ?: return@TestSessionCard, connected.node.ip) },
-                onOpenGps = { onOpenGps(activeSessionId ?: return@TestSessionCard) },
-                onOpenIperf = { onOpenIperf(activeSessionId ?: return@TestSessionCard) },
-                onStop = { sessionViewModel.stop() },
+            IperfCard(onOpenIperf = { onOpenIperf(activeSessionId ?: return@IperfCard) })
+            GpsStatusCard(
+                fix = latestGpsFix,
+                onOpenGps = { onOpenGps(activeSessionId ?: return@GpsStatusCard) },
+            )
+            ExportDataCard(
+                onExport = {
+                    coroutineScope.launch {
+                        sessionViewModel.exportableSessionId(connected.node.ip)?.let(onOpenExport)
+                    }
+                },
             )
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { dashboardViewModel.refresh(connected.node.ip) }) { Text("Refresh") }
                 Button(onClick = onOpenSessions) { Text("Sessions") }
                 Button(
-                    onClick = { connectionViewModel.disconnect() },
+                    onClick = {
+                        sessionViewModel.stop()
+                        connectionViewModel.disconnect()
+                    },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                 ) { Text("Disconnect") }
             }
@@ -186,53 +217,85 @@ private fun MeshPeersCard(uiState: DashboardUiState) {
 @Composable
 private fun LinkQualityCard(uiState: DashboardUiState, refreshIntervalMs: Long) {
     TerminalCard(title = "Link Quality", meta = "${formatSeconds(refreshIntervalMs / 1000.0)}S") {
-        val quality = uiState.averageLinkQualityPercent
+        val quality = uiState.averageLinkQuality
         Text(
             quality?.let { "%.0f".format(it) } ?: "—",
             style = MaterialTheme.typography.headlineMedium,
             color = MaterialTheme.colorScheme.primary,
         )
-        LinearProgressIndicator(
-            progress = { ((quality ?: 0.0) / 100.0).toFloat().coerceIn(0f, 1f) },
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            color = TerminalCyan,
-            trackColor = MaterialTheme.colorScheme.outline,
-        )
+        if (uiState.linkQualityHistory.size >= 2) {
+            Sparkline(
+                values = uiState.linkQualityHistory,
+                modifier = Modifier.fillMaxWidth().height(48.dp).padding(top = 8.dp),
+            )
+        }
     }
 }
 
 /**
- * Active (non-excluded) nodes get a full card; excluded nodes are hidden from the session view
- * entirely (no stats, no ping row) and collapse into a compact re-enable list underneath, so
- * they don't clutter the live session but stay reachable to toggle back on.
+ * The "Nodes" section: an Enabled group (one full card per node - name, live API stats, latest
+ * ping result, each with an exclude toggle) and, if any nodes are excluded, a compact Disabled
+ * group listing just their names with a switch to bring them back.
  */
 @Composable
-private fun PeerNodeCards(
+private fun NodesSection(
     peers: List<NodePeerUiState>,
     disabledHostnames: Set<String>,
+    pingTargetCount: Int,
     onSetDisabled: (hostname: String, disabled: Boolean) -> Unit,
 ) {
-    if (peers.isEmpty()) {
-        TerminalCard(title = "Mesh Peers", meta = "Live") {
-            Text("No neighbors discovered yet.", color = TerminalTextSecondary)
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionLabel("Nodes", meta = if (pingTargetCount > 0) "Pinging $pingTargetCount" else null)
+
+        if (peers.isEmpty()) {
+            TerminalCard(title = "Mesh Peers", meta = "Live") {
+                Text("No neighbors discovered yet.", color = TerminalTextSecondary)
+            }
+            return
         }
-        return
+
+        val (disabled, enabled) = peers.partition { it.hostname in disabledHostnames }
+
+        SectionLabel("Enabled", small = true)
+        if (enabled.isEmpty()) {
+            Text("All nodes excluded.", color = TerminalTextSecondary, style = MaterialTheme.typography.bodySmall)
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                enabled.forEach { peer ->
+                    NodePeerCard(peer = peer, onExclude = { onSetDisabled(peer.hostname, true) })
+                }
+            }
+        }
+
+        if (disabled.isNotEmpty()) {
+            SectionLabel("Disabled", small = true)
+            DisabledNodesCard(disabled, onInclude = { hostname -> onSetDisabled(hostname, false) })
+        }
     }
-    val (excluded, active) = peers.partition { it.hostname in disabledHostnames }
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        active.forEach { peer ->
-            NodePeerCard(peer = peer, onExclude = { onSetDisabled(peer.hostname, true) })
-        }
-        if (excluded.isNotEmpty()) {
-            ExcludedNodesCard(excluded, onInclude = { hostname -> onSetDisabled(hostname, false) })
+}
+
+@Composable
+private fun SectionLabel(text: String, meta: String? = null, small: Boolean = false) {
+    Row {
+        Text(
+            text.uppercase(),
+            style = if (small) MaterialTheme.typography.labelLarge else MaterialTheme.typography.titleSmall,
+            color = if (small) TerminalTextSecondary else MaterialTheme.colorScheme.primary,
+        )
+        if (meta != null) {
+            Text(
+                "  ·  ${meta.uppercase()}",
+                style = MaterialTheme.typography.labelLarge,
+                color = TerminalTextSecondary,
+            )
         }
     }
 }
 
 /**
- * One card per active node: name header + exclude toggle, then the node's live API stats, then
+ * One card per enabled node: name header + exclude toggle, then the node's live API stats, then
  * its most recent ping result - each section divided, matching the field-ops reference layout.
- * Excluding a node persists (DisabledNodesRepository), hides it from this session view, and if a
+ * Excluding a node persists (DisabledNodesRepository), moves it to the Disabled group, and if a
  * session is currently running, restarts it immediately with the updated target list.
  */
 @Composable
@@ -274,9 +337,9 @@ private fun NodePeerCard(peer: NodePeerUiState, onExclude: () -> Unit) {
 }
 
 @Composable
-private fun ExcludedNodesCard(excluded: List<NodePeerUiState>, onInclude: (hostname: String) -> Unit) {
-    TerminalCard(title = "Excluded", meta = "${excluded.size}") {
-        excluded.forEachIndexed { index, peer ->
+private fun DisabledNodesCard(disabled: List<NodePeerUiState>, onInclude: (hostname: String) -> Unit) {
+    TerminalCard(title = "Disabled", meta = "${disabled.size}") {
+        disabled.forEachIndexed { index, peer ->
             if (index > 0) HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp), color = TerminalOutline)
             Row(
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -312,9 +375,26 @@ private fun PingResultRow(ping: PingResult?) {
     }
 }
 
+/**
+ * iperf (v2 or v3, picked per test/profile - see IperfEngine) is a standalone, user-triggered
+ * test, not part of the continuous ping/GPS session - its own card so it doesn't read as gated
+ * by (or part of) that session, even though a run still gets tagged with whatever session
+ * happens to be active for time-series correlation.
+ */
 @Composable
-private fun GpsStatusCard(fix: GpsFix?) {
-    TerminalCard(title = "GPS / GNSS") {
+private fun IperfCard(onOpenIperf: () -> Unit) {
+    TerminalCard(title = "iperf") {
+        Text("Standalone throughput test against a configured server.", color = TerminalTextSecondary)
+        Button(onClick = onOpenIperf, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+            Text("Run iperf test")
+        }
+    }
+}
+
+/** Tapping the card opens the full GPS fix history (GpsScreen). */
+@Composable
+private fun GpsStatusCard(fix: GpsFix?, onOpenGps: () -> Unit) {
+    TerminalCard(title = "GPS / GNSS", modifier = Modifier.clickable(onClick = onOpenGps)) {
         if (fix == null) {
             Text("No fix yet.", color = TerminalTextSecondary)
             return@TerminalCard
@@ -343,29 +423,11 @@ private fun GpsSource.label(): String = when (this) {
 }
 
 @Composable
-private fun TestSessionCard(
-    activeSessionId: String?,
-    pingTargets: List<PingTarget>,
-    onOpenPing: () -> Unit,
-    onOpenGps: () -> Unit,
-    onOpenIperf: () -> Unit,
-    onStop: () -> Unit,
-) {
-    TerminalCard(title = "Test Session") {
-        if (activeSessionId == null) {
-            Text("Starting session against ${pingTargets.size.coerceAtLeast(1)} target(s)…", color = TerminalTextSecondary)
-        } else {
-            val targetList = pingTargets.joinToString { "${it.label} (${it.host})" }
-            Text("Pinging ${pingTargets.size} target(s): $targetList", color = TerminalTextSecondary)
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(top = 8.dp),
-            ) {
-                Button(onClick = onOpenPing) { Text("Ping") }
-                Button(onClick = onOpenGps) { Text("GPS") }
-                Button(onClick = onOpenIperf) { Text("iperf3") }
-                Button(onClick = onStop) { Text("Stop") }
-            }
+private fun ExportDataCard(onExport: () -> Unit) {
+    TerminalCard(title = "Export Data") {
+        Text("Export this session's ping/GPS/iperf log as one combined CSV.", color = TerminalTextSecondary)
+        Button(onClick = onExport, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+            Text("Open Export")
         }
     }
 }

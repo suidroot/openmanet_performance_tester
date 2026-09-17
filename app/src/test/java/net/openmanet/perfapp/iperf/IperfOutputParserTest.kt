@@ -118,4 +118,91 @@ class IperfOutputParserTest {
         checkNotNull(result)
         assertEquals("RECEIVE", result.direction)
     }
+
+    // --- IperfEngine.V2 (`-y C` CSV output) - lines captured verbatim from a real local
+    // iperf 2.2.1 client/server run, not hand-constructed, since the CSV column layout isn't
+    // otherwise documented anywhere in this codebase.
+
+    private val v2TcpConfig = IperfConfig(host = "10.41.1.2", protocol = IperfProtocol.TCP, engine = IperfEngine.V2)
+    private val v2UdpConfig = IperfConfig(host = "10.41.1.2", protocol = IperfProtocol.UDP, engine = IperfEngine.V2)
+
+    @Test
+    fun v2TcpIntervalLine_parsesAsNonSummary() {
+        val line = "20260916230043,127.0.0.1,49252,127.0.0.1,15201,1,0.0-1.0,18433835072,147470680576"
+
+        val result = IperfOutputParser.parseLine(v2TcpConfig, "session-1", "run-1", 1_000L, line)
+
+        checkNotNull(result)
+        assertFalse(result.isSummary)
+        assertEquals("TCP", result.protocol)
+        assertEquals(0.0, result.intervalStartSec!!, 0.001)
+        assertEquals(1.0, result.intervalEndSec!!, 0.001)
+        assertEquals(18_433_835_072L, result.bytesTransferred)
+        assertEquals(147_470_680_576.0, result.bitsPerSecond!!, 0.001)
+        assertNull(result.jitterMs)
+        assertNull(result.lostPackets)
+    }
+
+    @Test
+    fun v2TcpSummaryLine_spanningWholeTest_isSummary() {
+        val line = "20260916230044,127.0.0.1,49252,127.0.0.1,15201,1,0.0-3.0,57402327104,152772978919"
+
+        val result = IperfOutputParser.parseLine(v2TcpConfig, "session-1", "run-1", 1_000L, line)
+
+        checkNotNull(result)
+        assertTrue(result.isSummary)
+        assertEquals(57_402_327_104L, result.bytesTransferred)
+    }
+
+    @Test
+    fun v2UdpIntervalLine_parsesJitterAndLoss() {
+        val line = "20260916230119,127.0.0.1,58499,127.0.0.1,15201,1,0.0-1.0,655620,5244960,0.000,0,446,0.000,0"
+
+        val result = IperfOutputParser.parseLine(v2UdpConfig, "session-1", "run-1", 1_000L, line)
+
+        checkNotNull(result)
+        assertFalse(result.isSummary)
+        assertEquals("UDP", result.protocol)
+        assertEquals(655_620L, result.bytesTransferred)
+        assertEquals(0.0, result.jitterMs!!, 0.001)
+        assertEquals(0, result.lostPackets)
+    }
+
+    @Test
+    fun v2UdpSummaryLine_nanJitterAndNegativeSentinels_areNulledNotThrown() {
+        // A real quirk seen locally: the client-side UDP summary can report jitter as the
+        // literal (lowercase) text "nan" and a sentinel of -1/-0.000 for fields the server-side
+        // "UDP fin" report didn't arrive in time to fill - none of that should crash the parser
+        // or produce a bogus negative/NaN value in the stored result.
+        val line = "20260916230119,127.0.0.1,58499,127.0.0.1,15201,1,0.0-2.0,1314180,5247864,nan,0,-1,-0.000,0"
+
+        val result = IperfOutputParser.parseLine(v2UdpConfig, "session-1", "run-1", 1_000L, line)
+
+        checkNotNull(result)
+        assertTrue(result.isSummary)
+        assertNull(result.jitterMs)
+    }
+
+    @Test
+    fun v2ReverseDirection_isTaggedReceive() {
+        val config = v2TcpConfig.copy(reverse = true)
+        val line = "20260916230124,127.0.0.1,15201,127.0.0.1,49312,1,0.0-1.0,17833787392,142670299136"
+
+        val result = IperfOutputParser.parseLine(config, "session-1", "run-1", 1_000L, line)
+
+        checkNotNull(result)
+        assertEquals("RECEIVE", result.direction)
+    }
+
+    @Test
+    fun v2ServerBanner_isNotParsedNotThrown() {
+        val line = "Running Iperf Server as a daemon"
+        assertNull(IperfOutputParser.parseLine(v2TcpConfig, "session-1", "run-1", 1_000L, line))
+    }
+
+    @Test
+    fun v2ConnectionRefusedError_isNotParsedNotThrown() {
+        val line = "[  1] tcp connect to 10.41.1.2 port 5001 failed (Connection refused)"
+        assertNull(IperfOutputParser.parseLine(v2TcpConfig, "session-1", "run-1", 1_000L, line))
+    }
 }

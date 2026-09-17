@@ -23,6 +23,13 @@ sealed interface UploadUiState {
     data class Error(val message: String) : UploadUiState
 }
 
+/**
+ * One combined "Export" action (generate the session's CSV + open the share sheet) instead of
+ * separate "Generate" then "Share" taps in sequence - and "Upload" no longer depends on having
+ * tapped Export first, since it generates the CSV itself if needed. CsvExporter now always
+ * produces at most one file per session (session_log.csv), so there's no longer a list of files
+ * to juggle either.
+ */
 @HiltViewModel
 class ExportViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
@@ -33,11 +40,11 @@ class ExportViewModel @Inject constructor(
 ) : ViewModel() {
     private val sessionId: String = checkNotNull(savedStateHandle["sessionId"])
 
-    private val _files = MutableStateFlow<List<File>>(emptyList())
-    val files: StateFlow<List<File>> = _files.asStateFlow()
+    private val _file = MutableStateFlow<File?>(null)
+    val file: StateFlow<File?> = _file.asStateFlow()
 
-    private val _isGenerating = MutableStateFlow(false)
-    val isGenerating: StateFlow<Boolean> = _isGenerating.asStateFlow()
+    private val _isBusy = MutableStateFlow(false)
+    val isBusy: StateFlow<Boolean> = _isBusy.asStateFlow()
 
     private val _uploadState = MutableStateFlow<UploadUiState>(UploadUiState.Idle)
     val uploadState: StateFlow<UploadUiState> = _uploadState.asStateFlow()
@@ -53,47 +60,39 @@ class ExportViewModel @Inject constructor(
         _endpointUrl.value = url
     }
 
-    fun generate() {
+    /** Generates the session's CSV from the latest data and immediately opens the share sheet. */
+    fun exportAndShare() {
         viewModelScope.launch {
-            _isGenerating.value = true
-            _files.value = csvExporter.exportSession(sessionId)
-            _isGenerating.value = false
+            ensureGenerated()?.let { file -> shareSheetExporter.share(listOf(file)) }
         }
-    }
-
-    fun share() {
-        shareSheetExporter.share(_files.value)
     }
 
     fun upload() {
         val url = _endpointUrl.value
-        val fileList = _files.value
-        if (url.isBlank() || fileList.isEmpty()) return
+        if (url.isBlank()) return
 
         viewModelScope.launch {
+            val file = ensureGenerated()
+            if (file == null) {
+                _uploadState.value = UploadUiState.Error("No data recorded for this session yet.")
+                return@launch
+            }
             _uploadState.value = UploadUiState.Uploading
             uploadSettingsRepository.setEndpointUrl(url)
-
-            for (file in fileList) {
-                val target = if (fileList.size > 1) appendSuffix(url, file.nameWithoutExtension) else url
-                val result = uploadService.upload(file, target)
-                if (result.isFailure) {
-                    _uploadState.value = UploadUiState.Error(result.exceptionOrNull()?.message ?: "Upload failed")
-                    return@launch
-                }
+            val result = uploadService.upload(file, url)
+            _uploadState.value = if (result.isSuccess) {
+                UploadUiState.Success
+            } else {
+                UploadUiState.Error(result.exceptionOrNull()?.message ?: "Upload failed")
             }
-            _uploadState.value = UploadUiState.Success
         }
     }
 
-    /** When exporting multiple files to one presigned-style URL, disambiguate by suffixing the
-     * path so each file lands at its own key instead of overwriting the last one uploaded. */
-    private fun appendSuffix(url: String, suffix: String): String {
-        val queryIndex = url.indexOf('?')
-        return if (queryIndex == -1) {
-            "$url-$suffix"
-        } else {
-            url.substring(0, queryIndex) + "-$suffix" + url.substring(queryIndex)
-        }
+    private suspend fun ensureGenerated(): File? {
+        _isBusy.value = true
+        val generated = csvExporter.exportSession(sessionId).firstOrNull()
+        _file.value = generated
+        _isBusy.value = false
+        return generated
     }
 }

@@ -48,6 +48,20 @@ android {
             kotlin.srcDir("src/main/kotlin-gen")
         }
     }
+
+    // iperf/IperfProcessRunner execs the vendored libiperf3exec.so as a subprocess from
+    // applicationInfo.nativeLibraryDir - that only works if it's actually extracted to a real
+    // file on disk at install time. AGP's modern default (page-aligned, uncompressed native libs
+    // loaded straight out of the APK via mmap, never extracted) leaves nativeLibraryDir empty,
+    // which silently broke every iperf3 run with "No such file or directory" - confirmed
+    // on-device, the extracted lib dir had zero files in it. useLegacyPackaging forces the old
+    // extract-to-disk behavior back on; android:extractNativeLibs in the manifest is ignored by
+    // AGP 8+ in favor of this DSL.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
 }
 
 // The openmanetd Connect-RPC client code (rpc/) is generated from the vendored .proto files

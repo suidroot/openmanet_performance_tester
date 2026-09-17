@@ -1,5 +1,6 @@
 package net.openmanet.perfapp.ui.theme
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
@@ -87,6 +89,29 @@ fun ProgressStatRow(label: String, fraction: Float, valueText: String) {
             color = TerminalCyan,
             trackColor = TerminalOutline,
         )
+    }
+}
+
+/**
+ * A minimal line-graph of recent values, min/max-autoscaled to fill the available height - unlike
+ * a simple value-over-max scaling, this handles series that are legitimately negative (e.g. a
+ * dBm-like signal quality reading), where dividing by max alone would flatten the whole line to
+ * the bottom edge.
+ */
+@Composable
+fun Sparkline(values: List<Double>, modifier: Modifier = Modifier, color: Color = TerminalCyan) {
+    Canvas(modifier = modifier) {
+        if (values.size < 2) return@Canvas
+        val min = values.min()
+        val max = values.max()
+        val range = (max - min).takeIf { it > 0.0 } ?: 1.0
+        val stepX = size.width / (values.size - 1)
+        val points = values.mapIndexed { index, value ->
+            Offset(x = index * stepX, y = size.height - ((value - min) / range * size.height).toFloat())
+        }
+        for (i in 0 until points.size - 1) {
+            drawLine(color = color, start = points[i], end = points[i + 1], strokeWidth = 4f)
+        }
     }
 }
 

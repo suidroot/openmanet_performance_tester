@@ -22,4 +22,7 @@ interface NeighborSnapshotDao {
 
     @Insert
     suspend fun insertAll(snapshots: List<NeighborSnapshot>)
+
+    @Query("DELETE FROM neighbor_snapshot")
+    suspend fun deleteAll()
 }

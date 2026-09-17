@@ -16,14 +16,18 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Runs the vendored iperf3 CLI binary (see scripts/build_iperf3.sh) as a subprocess and streams
- * its stdout line by line - the same non-root-friendly approach PingRunner uses, chosen over a
- * JNI/libiperf bridge per the plan's Phase 3 spike (simpler, and -i 1 human-readable output
- * gives live per-second progress without needing a callback bridge into native code).
+ * Runs the vendored iperf CLI binary (see scripts/build_iperf2.sh, build_iperf3.sh - two
+ * separate, wire-incompatible binaries, one per IperfEngine) as a subprocess and streams its
+ * stdout line by line - the same non-root-friendly approach PingRunner uses, chosen over a
+ * JNI/libiperf bridge per the plan's Phase 3 spike (simpler, and per-second progress output
+ * gives live updates without needing a callback bridge into native code).
  *
- * The binary lives under applicationInfo.nativeLibraryDir (packaged as jniLibs/<abi>/libiperf3exec.so
- * - named like a shared library so Android's APK installer extracts it into the one
- * app-private location exempt from Android 10+'s restrictions on executing app-writable files).
+ * The binary lives under applicationInfo.nativeLibraryDir (packaged as
+ * jniLibs/<abi>/libiperf{2,3}exec.so - named like a shared library so Android's APK installer
+ * extracts it into the one app-private location exempt from Android 10+'s restrictions on
+ * executing app-writable files; app/build.gradle.kts also forces
+ * packaging.jniLibs.useLegacyPackaging so it's actually extracted to disk at all, rather than
+ * left compressed inside the APK the way AGP defaults to).
  */
 @Singleton
 class IperfProcessRunner @Inject constructor(
@@ -32,8 +36,10 @@ class IperfProcessRunner @Inject constructor(
     private val connectivityManager =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
-    private val binaryPath: String
-        get() = File(context.applicationInfo.nativeLibraryDir, "libiperf3exec.so").absolutePath
+    private fun binaryPath(engine: IperfEngine): String {
+        val fileName = if (engine == IperfEngine.V2) "libiperf2exec.so" else "libiperf3exec.so"
+        return File(context.applicationInfo.nativeLibraryDir, fileName).absolutePath
+    }
 
     fun run(config: IperfConfig): Flow<String> = callbackFlow {
         val localAddress = connectivityManager.activeNetwork
@@ -45,12 +51,16 @@ class IperfProcessRunner @Inject constructor(
             ?.hostAddress
 
         val command = buildList {
-            add(binaryPath)
+            add(binaryPath(config.engine))
             add("-c"); add(config.host)
             add("-p"); add(config.port.toString())
             add("-t"); add(config.durationSeconds.toString())
             add("-i"); add("1")
-            add("-f"); add("m") // force Mbit/s + MBytes so the parser doesn't need to detect units
+            if (config.engine == IperfEngine.V3) {
+                add("-f"); add("m") // force Mbit/s + MBytes so the parser doesn't need to detect units
+            } else {
+                add("-y"); add("C") // CSV report: always raw bytes/bits-per-sec, no unit detection needed either
+            }
             if (config.protocol == IperfProtocol.UDP) add("-u")
             if (config.reverse) add("-R")
             if (localAddress != null) {
@@ -62,7 +72,7 @@ class IperfProcessRunner @Inject constructor(
             ProcessBuilder(command).redirectErrorStream(true).start()
         }
 
-        val readerJob = launch(Dispatchers.IO + CoroutineName("iperf3-reader")) {
+        val readerJob = launch(Dispatchers.IO + CoroutineName("iperf-reader")) {
             process.inputStream.bufferedReader().useLines { lines ->
                 lines.forEach { line -> trySend(line) }
             }

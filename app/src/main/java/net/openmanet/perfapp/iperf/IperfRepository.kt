@@ -1,8 +1,8 @@
 package net.openmanet.perfapp.iperf
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
-import kotlinx.coroutines.flow.onEach
 import net.openmanet.perfapp.core.AppClock
 import net.openmanet.perfapp.data.dao.IperfResultDao
 import net.openmanet.perfapp.data.entities.IperfResult
@@ -11,10 +11,18 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Runs one iperf3 test (a discrete, user-triggered action - unlike ping/GPS this isn't a
+ * Runs one iperf test (a discrete, user-triggered action - unlike ping/GPS this isn't a
  * continuous background collector) and persists every interval sample plus the final summary
  * row(s) as they arrive, tagging them with a fresh testRunId so a session's iperf_result rows
  * group cleanly by run even across repeated tests against the same target.
+ *
+ * Copies Room's auto-generated id back onto the emitted result (rather than leaving every result
+ * at its default id=0) - IperfScreen's summary-row LazyColumn keys on `it.id`, and a real test
+ * commonly reports more than one summary line (e.g. iperf3 TCP forward mode prints both a
+ * "sender" and a "receiver" summary), so leaving every emitted row's id at 0 crashed with
+ * "Key "0" was already used" the moment two summary rows existed in the same run - confirmed on
+ * a real device, right after the native-lib extraction fix let a test actually complete for the
+ * first time.
  */
 @Singleton
 class IperfRepository @Inject constructor(
@@ -26,6 +34,6 @@ class IperfRepository @Inject constructor(
         val testRunId = UUID.randomUUID().toString()
         return processRunner.run(config)
             .mapNotNull { line -> IperfOutputParser.parseLine(config, sessionId, testRunId, clock.nowMs(), line) }
-            .onEach { result -> iperfResultDao.insert(result) }
+            .map { result -> result.copy(id = iperfResultDao.insert(result)) }
     }
 }

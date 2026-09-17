@@ -19,4 +19,7 @@ interface PingResultDao {
 
     @Insert
     suspend fun insert(result: PingResult): Long
+
+    @Query("DELETE FROM ping_result")
+    suspend fun deleteAll()
 }

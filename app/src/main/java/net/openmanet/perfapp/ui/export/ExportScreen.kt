@@ -21,8 +21,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
 fun ExportScreen(viewModel: ExportViewModel = hiltViewModel()) {
-    val files by viewModel.files.collectAsStateWithLifecycle()
-    val isGenerating by viewModel.isGenerating.collectAsStateWithLifecycle()
+    val file by viewModel.file.collectAsStateWithLifecycle()
+    val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
     val uploadState by viewModel.uploadState.collectAsStateWithLifecycle()
     val endpointUrl by viewModel.endpointUrl.collectAsStateWithLifecycle()
 
@@ -33,45 +33,40 @@ fun ExportScreen(viewModel: ExportViewModel = hiltViewModel()) {
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            Text("Exports this session's ping/GPS/iperf log as one combined CSV.")
+
             Button(
-                onClick = { viewModel.generate() },
-                enabled = !isGenerating,
+                onClick = { viewModel.exportAndShare() },
+                enabled = !isBusy,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(if (isGenerating) "Generating…" else "Generate CSV")
+                Text(if (isBusy) "Exporting…" else "Export…")
             }
 
-            if (files.isEmpty() && !isGenerating) {
-                Text("No CSV generated yet, or this session has no recorded data.")
+            file?.let { Text("Last export: ${it.name}") }
+            if (file == null && !isBusy) {
+                Text("This session has no recorded data yet.", color = MaterialTheme.colorScheme.error)
             }
 
-            files.forEach { file -> Text("• ${file.name}") }
+            OutlinedTextField(
+                value = endpointUrl,
+                onValueChange = viewModel::onEndpointUrlChanged,
+                label = { Text("Upload URL (optional)") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Button(
+                onClick = { viewModel.upload() },
+                enabled = !isBusy && uploadState != UploadUiState.Uploading && endpointUrl.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Upload")
+            }
 
-            if (files.isNotEmpty()) {
-                Button(onClick = { viewModel.share() }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Share…")
-                }
-
-                OutlinedTextField(
-                    value = endpointUrl,
-                    onValueChange = viewModel::onEndpointUrlChanged,
-                    label = { Text("Upload URL") },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Button(
-                    onClick = { viewModel.upload() },
-                    enabled = uploadState != UploadUiState.Uploading && endpointUrl.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Upload")
-                }
-
-                when (val state = uploadState) {
-                    UploadUiState.Idle -> {}
-                    UploadUiState.Uploading -> CircularProgressIndicator()
-                    UploadUiState.Success -> Text("Upload complete", color = MaterialTheme.colorScheme.primary)
-                    is UploadUiState.Error -> Text(state.message, color = MaterialTheme.colorScheme.error)
-                }
+            when (val state = uploadState) {
+                UploadUiState.Idle -> {}
+                UploadUiState.Uploading -> CircularProgressIndicator()
+                UploadUiState.Success -> Text("Upload complete", color = MaterialTheme.colorScheme.primary)
+                is UploadUiState.Error -> Text(state.message, color = MaterialTheme.colorScheme.error)
             }
         }
     }

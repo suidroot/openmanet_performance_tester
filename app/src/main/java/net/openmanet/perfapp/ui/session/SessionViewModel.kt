@@ -1,5 +1,6 @@
 package net.openmanet.perfapp.ui.session
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -10,6 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import net.openmanet.perfapp.data.dao.TestSessionDao
 import net.openmanet.perfapp.ping.PingTarget
 import net.openmanet.perfapp.rpc.NodeRepository
 import net.openmanet.perfapp.session.ActiveSessionHolder
@@ -17,12 +19,15 @@ import net.openmanet.perfapp.session.TestSessionManager
 import net.openmanet.perfapp.settings.DisabledNodesRepository
 import javax.inject.Inject
 
+private const val TAG = "SessionViewModel"
+
 @HiltViewModel
 class SessionViewModel @Inject constructor(
     activeSessionHolder: ActiveSessionHolder,
     private val testSessionManager: TestSessionManager,
     private val nodeRepository: NodeRepository,
     private val disabledNodesRepository: DisabledNodesRepository,
+    private val testSessionDao: TestSessionDao,
 ) : ViewModel() {
 
     val activeSessionId: StateFlow<String?> = activeSessionHolder.sessionId
@@ -34,28 +39,42 @@ class SessionViewModel @Inject constructor(
     val disabledHostnames: StateFlow<Set<String>> = disabledNodesRepository.disabledHostnames
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
-    /** Guards against re-triggering when the Dashboard recomposes; a genuinely new connection
-     * gets a fresh ConnectionViewModel/SessionViewModel instance anyway. */
-    private var autoStarted = false
+    /** Guards against a double-start if the logging toggle is tapped again before the coroutine
+     * below finishes; a genuinely new connection gets a fresh SessionViewModel instance anyway.
+     * Reset on any failure too (see start()) - otherwise a single failed attempt (a slow/failed
+     * NodeService RPC, say) would latch this true forever and silently block every later retry,
+     * since the toggle's checked state only reflects activeSessionId, not this flag. */
+    private var started = false
     private var connectedNodeIp: String? = null
 
     /**
-     * Starts a test session automatically, pinging only the OpenManet nodes discovered via
-     * NodeService (never an arbitrary/manually-entered host) and not excluded via
-     * setNodeDisabled - each target is the node's own hostname paired with its IP address, not a
-     * bare address. Safe to call repeatedly (e.g. from a recomposing LaunchedEffect); only the
-     * first call after connecting does anything.
+     * Starts a test session - user-triggered via the dashboard's logging toggle, not automatic on
+     * connect - pinging only the OpenManet nodes discovered via NodeService (never an arbitrary/
+     * manually-entered host) and not excluded via setNodeDisabled - each target is the node's own
+     * hostname paired with its IP address, not a bare address.
      */
-    fun autoStart(connectedNodeIp: String) {
+    fun start(connectedNodeIp: String) {
         this.connectedNodeIp = connectedNodeIp
-        if (autoStarted || activeSessionId.value != null) return
-        autoStarted = true
+        if (started || activeSessionId.value != null) return
+        started = true
         viewModelScope.launch {
-            val targets = buildPingTargets(connectedNodeIp)
-            _pingTargets.value = targets
-            testSessionManager.start(connectedNodeIp, targets)
+            try {
+                val targets = buildPingTargets(connectedNodeIp)
+                _pingTargets.value = targets
+                testSessionManager.start(connectedNodeIp, targets)
+                Log.i(TAG, "Requested session start against $connectedNodeIp with ${targets.size} target(s)")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start test session against $connectedNodeIp", e)
+                started = false
+            }
         }
     }
+
+    /** The session to export: whichever is currently active, or failing that, the most recently
+     * recorded session for this node - so "Export Data" still works right after logging is
+     * stopped, not only while it's running. Null only if nothing has ever been logged for it. */
+    suspend fun exportableSessionId(connectedNodeIp: String): String? =
+        activeSessionId.value ?: testSessionDao.getMostRecentForNode(connectedNodeIp)?.sessionId
 
     /**
      * Flips a node's excluded-from-testing state and persists it. If a session is currently
@@ -88,6 +107,6 @@ class SessionViewModel @Inject constructor(
 
     fun stop() {
         testSessionManager.stop()
-        autoStarted = false
+        started = false
     }
 }

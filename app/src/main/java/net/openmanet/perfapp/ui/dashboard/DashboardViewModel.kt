@@ -27,6 +27,7 @@ import net.openmanet.perfapp.rpc.NodeRepository
 import net.openmanet.perfapp.rpc.StatusRepository
 import net.openmanet.perfapp.rpc.baseHostname
 import net.openmanet.perfapp.session.ActiveSessionHolder
+import net.openmanet.perfapp.settings.GpsPreferenceRepository
 import net.openmanet.perfapp.settings.RefreshSettingsRepository
 import javax.inject.Inject
 
@@ -42,6 +43,9 @@ data class DashboardUiState(
     val hopsByHostname: Map<String, Int> = emptyMap(),
     val gatewayHostname: String? = null,
     val selfHostname: String? = null,
+    /** Recent averageLinkQuality samples, oldest first, capped at LINK_QUALITY_HISTORY_SIZE -
+     * drawn as a line graph rather than showing a single instantaneous number. */
+    val linkQualityHistory: List<Double> = emptyList(),
 ) {
     val averageHops: Double?
         get() {
@@ -49,11 +53,12 @@ data class DashboardUiState(
             return if (values.isEmpty()) null else values.average()
         }
 
-    /** Average of MeshNeighbor.signal across current neighbors, as an approximate link-quality
-     * percentage - the proto documents `signal` as "signal quality to the neighbor node"
-     * (distinct from the dBm `signal_strength` field) without pinning an exact 0-100 scale, so
-     * this is presented as an estimate, not a precise calibrated percentage. */
-    val averageLinkQualityPercent: Double?
+    /** Average of MeshNeighbor.signal across current neighbors. The proto documents `signal` as
+     * "signal quality to the neighbor node" (distinct from the dBm `signal_strength` field)
+     * without pinning a scale, and on real hardware it reads as a negative, dBm-like number, not
+     * a 0-100 percent - so this is an estimate in whatever unit the node actually reports, not a
+     * calibrated percentage. */
+    val averageLinkQuality: Double?
         get() = neighbors.map { it.signal }.takeIf { it.isNotEmpty() }?.average()
 }
 
@@ -81,6 +86,7 @@ class DashboardViewModel @Inject constructor(
     private val pingResultDao: PingResultDao,
     private val activeSessionHolder: ActiveSessionHolder,
     private val refreshSettingsRepository: RefreshSettingsRepository,
+    private val gpsPreferenceRepository: GpsPreferenceRepository,
     private val clock: AppClock,
 ) : ViewModel() {
 
@@ -90,15 +96,18 @@ class DashboardViewModel @Inject constructor(
     val refreshIntervalMs: StateFlow<Long> = refreshSettingsRepository.intervalMs
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RefreshSettingsRepository.DEFAULT_INTERVAL_MS)
 
-    /** Most recent GPS fix for whichever session is currently active, from either source (device
-     * GPS or the mesh's CoT multicast feed) - whichever produced a fix most recently, or null if
-     * there's no active session yet or neither has produced one. */
-    val latestGpsFix: StateFlow<GpsFix?> = activeSessionHolder.sessionId
-        .flatMapLatest { sessionId ->
+    /** Most recent GPS fix for whichever session is currently active. Prefers the user's chosen
+     * source (Settings - device GPS or the mesh's CoT multicast feed) if it has produced a fix;
+     * falls back to whichever source is actually available otherwise, rather than showing
+     * nothing just because the preferred source hasn't reported yet. */
+    val latestGpsFix: StateFlow<GpsFix?> = combine(
+        activeSessionHolder.sessionId.flatMapLatest { sessionId ->
             if (sessionId == null) flowOf(emptyList()) else gpsFixDao.observeForSession(sessionId)
-        }
-        .map { fixes -> fixes.lastOrNull() }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        },
+        gpsPreferenceRepository.preferredSource,
+    ) { fixes, preferred ->
+        fixes.lastOrNull { it.source == preferred } ?: fixes.lastOrNull()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** Most recent ping result per target host for whichever session is currently active. */
     private val latestPingByHost: StateFlow<Map<String, PingResult>> = activeSessionHolder.sessionId
@@ -144,16 +153,24 @@ class DashboardViewModel @Inject constructor(
             val topology = topologyResult.getOrNull()
             val hopsByHostname = topology?.nodes?.associate { it.hostname to it.hopsFromSelf }.orEmpty()
             val gatewayHostname = topology?.nodes?.firstOrNull { it.isGateway }?.hostname
+            val neighbors = neighborsResult.getOrNull() ?: _uiState.value.neighbors
+            val newQuality = neighbors.map { it.signal }.takeIf { it.isNotEmpty() }?.average()
+            val linkQualityHistory = if (newQuality != null) {
+                (_uiState.value.linkQualityHistory + newQuality).takeLast(LINK_QUALITY_HISTORY_SIZE)
+            } else {
+                _uiState.value.linkQualityHistory
+            }
 
             _uiState.value = DashboardUiState(
                 isLoading = false,
                 hasLoadedOnce = true,
                 status = statusResult.getOrNull() ?: _uiState.value.status,
                 nodes = nodesResult.getOrNull() ?: _uiState.value.nodes,
-                neighbors = neighborsResult.getOrNull() ?: _uiState.value.neighbors,
+                neighbors = neighbors,
                 hopsByHostname = hopsByHostname.ifEmpty { _uiState.value.hopsByHostname },
                 gatewayHostname = gatewayHostname ?: _uiState.value.gatewayHostname,
                 selfHostname = topology?.selfHostname?.takeIf { it.isNotBlank() } ?: _uiState.value.selfHostname,
+                linkQualityHistory = linkQualityHistory,
                 error = listOfNotNull(
                     statusResult.exceptionOrNull()?.message,
                     nodesResult.exceptionOrNull()?.message,
@@ -162,5 +179,9 @@ class DashboardViewModel @Inject constructor(
                 lastUpdatedAtMs = clock.nowMs(),
             )
         }
+    }
+
+    companion object {
+        private const val LINK_QUALITY_HISTORY_SIZE = 30
     }
 }

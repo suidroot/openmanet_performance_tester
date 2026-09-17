@@ -4,6 +4,17 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
+/**
+ * These run against the desktop JVM's own DocumentBuilderFactory (Xerces-based) - including
+ * under Robolectric, which was tried and confirmed to still resolve to the desktop JVM's parser
+ * here, not a shadow of Android's real org.apache.harmony one. That gap is exactly how a real
+ * on-device bug went undetected: CotXmlParser's factory init called
+ * setFeature("...disallow-doctype-decl", true), which the desktop parser accepts but Android's
+ * built-in parser rejects with ParserConfigurationException - crashing the whole app
+ * (ExceptionInInitializerError from this object's <clinit>) the moment the first real CoT packet
+ * was ever parsed. No JVM-side test can catch this class of divergence; it's why
+ * CLAUDE.md/Verification calls out on-device testing as required, not optional, for this code.
+ */
 class CotXmlParserTest {
 
     @Test

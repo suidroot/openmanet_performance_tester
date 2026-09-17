@@ -1,6 +1,5 @@
 package net.openmanet.perfapp.ui.iperf
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,13 +25,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import net.openmanet.perfapp.data.entities.IperfResult
 import net.openmanet.perfapp.iperf.IperfConfig
+import net.openmanet.perfapp.iperf.IperfEngine
 import net.openmanet.perfapp.iperf.IperfProtocol
+import net.openmanet.perfapp.ui.theme.Sparkline
 
 @Composable
 fun IperfScreen(viewModel: IperfViewModel = hiltViewModel()) {
@@ -41,14 +41,16 @@ fun IperfScreen(viewModel: IperfViewModel = hiltViewModel()) {
     val error by viewModel.error.collectAsStateWithLifecycle()
     val initialConfig by viewModel.initialConfig.collectAsStateWithLifecycle()
 
+    var engine by remember { mutableStateOf(IperfEngine.V3) }
     var host by remember { mutableStateOf("") }
-    var port by remember { mutableStateOf("5201") }
+    var port by remember { mutableStateOf(engine.defaultPort.toString()) }
     var durationSeconds by remember { mutableStateOf("10") }
     var protocol by remember { mutableStateOf(IperfProtocol.TCP) }
     var reverse by remember { mutableStateOf(false) }
 
     LaunchedEffect(initialConfig) {
         initialConfig?.let { config ->
+            engine = config.engine
             host = config.host
             port = config.port.toString()
             durationSeconds = config.durationSeconds.toString()
@@ -61,7 +63,7 @@ fun IperfScreen(viewModel: IperfViewModel = hiltViewModel()) {
     val summaryRows = samples.filter { it.isSummary }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("IPERF3") }) },
+        topBar = { TopAppBar(title = { Text("IPERF") }) },
     ) { padding ->
         Column(
             modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
@@ -74,6 +76,28 @@ fun IperfScreen(viewModel: IperfViewModel = hiltViewModel()) {
                 enabled = !isRunning,
                 modifier = Modifier.fillMaxWidth(),
             )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // OpenManet nodes run iperf2 by default, not iperf3 - the two speak
+                // incompatible wire protocols, so this picks which vendored binary/parser runs.
+                FilterChip(
+                    selected = engine == IperfEngine.V3,
+                    onClick = {
+                        if (port == IperfEngine.V2.defaultPort.toString()) port = IperfEngine.V3.defaultPort.toString()
+                        engine = IperfEngine.V3
+                    },
+                    label = { Text("iperf3") },
+                    enabled = !isRunning,
+                )
+                FilterChip(
+                    selected = engine == IperfEngine.V2,
+                    onClick = {
+                        if (port == IperfEngine.V3.defaultPort.toString()) port = IperfEngine.V2.defaultPort.toString()
+                        engine = IperfEngine.V2
+                    },
+                    label = { Text("iperf2") },
+                    enabled = !isRunning,
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = port,
@@ -116,10 +140,11 @@ fun IperfScreen(viewModel: IperfViewModel = hiltViewModel()) {
                     viewModel.start(
                         IperfConfig(
                             host = host,
-                            port = port.toIntOrNull() ?: 5201,
+                            port = port.toIntOrNull() ?: engine.defaultPort,
                             protocol = protocol,
                             durationSeconds = durationSeconds.toIntOrNull() ?: 10,
                             reverse = reverse,
+                            engine = engine,
                         ),
                     )
                 },
@@ -137,7 +162,7 @@ fun IperfScreen(viewModel: IperfViewModel = hiltViewModel()) {
                     "%.1f Mbit/s".format(current.bitsPerSecond!! / 1_000_000.0),
                     style = MaterialTheme.typography.headlineMedium,
                 )
-                ThroughputSparkline(
+                Sparkline(
                     values = intervalSamples.map { it.bitsPerSecond ?: 0.0 },
                     modifier = Modifier.fillMaxWidth().height(80.dp),
                 )
@@ -164,20 +189,4 @@ private fun SummaryRow(result: IperfResult) {
         },
     )
     HorizontalDivider()
-}
-
-@Composable
-private fun ThroughputSparkline(values: List<Double>, modifier: Modifier = Modifier) {
-    val lineColor = MaterialTheme.colorScheme.primary
-    Canvas(modifier = modifier) {
-        if (values.size < 2) return@Canvas
-        val max = values.max().coerceAtLeast(1.0)
-        val stepX = size.width / (values.size - 1)
-        val points = values.mapIndexed { index, value ->
-            Offset(x = index * stepX, y = size.height - (value / max * size.height).toFloat())
-        }
-        for (i in 0 until points.size - 1) {
-            drawLine(color = lineColor, start = points[i], end = points[i + 1], strokeWidth = 4f)
-        }
-    }
 }

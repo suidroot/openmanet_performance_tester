@@ -19,4 +19,7 @@ interface GpsFixDao {
 
     @Insert
     suspend fun insert(fix: GpsFix): Long
+
+    @Query("DELETE FROM gps_fix")
+    suspend fun deleteAll()
 }

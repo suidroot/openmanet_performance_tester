@@ -1,5 +1,6 @@
 package net.openmanet.perfapp.gps
 
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.catch
@@ -11,6 +12,8 @@ import net.openmanet.perfapp.data.entities.GpsFix
 import net.openmanet.perfapp.data.entities.GpsSource
 import javax.inject.Inject
 import javax.inject.Singleton
+
+private const val TAG = "GpsRepository"
 
 /**
  * Merges the two GPS sources requested in the brief - the EUD's own device GPS and the mesh's
@@ -27,14 +30,14 @@ class GpsRepository @Inject constructor(
     fun collectDeviceFixes(sessionId: String, scope: CoroutineScope): Job =
         scope.launch {
             deviceGpsProvider.locationUpdates()
-                .catch { /* device GPS unavailable/disabled - CoT collection continues independently */ }
+                .catch { e -> Log.w(TAG, "Device GPS unavailable/disabled - CoT collection continues independently", e) }
                 .collect { fix -> gpsFixDao.insert(fix.copy(sessionId = sessionId)) }
         }
 
     fun collectCotFixes(sessionId: String, scope: CoroutineScope): Job =
         scope.launch {
             cotMulticastListener.listen()
-                .catch { /* no mesh network bound yet, or the socket failed - nothing to recover here */ }
+                .catch { e -> Log.w(TAG, "CoT multicast listener failed - see CotMulticastListener logs for why", e) }
                 .collect { rawXml ->
                     val event = CotXmlParser.parse(rawXml) ?: return@collect
                     gpsFixDao.insert(

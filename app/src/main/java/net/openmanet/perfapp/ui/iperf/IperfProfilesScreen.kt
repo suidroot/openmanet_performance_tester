@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import net.openmanet.perfapp.data.entities.IperfProfile
+import net.openmanet.perfapp.iperf.IperfEngine
 
 @Composable
 fun IperfProfilesScreen(
@@ -38,13 +39,14 @@ fun IperfProfilesScreen(
 
     var name by remember { mutableStateOf("") }
     var host by remember { mutableStateOf("") }
-    var port by remember { mutableStateOf("5201") }
+    var engine by remember { mutableStateOf(IperfEngine.V3) }
+    var port by remember { mutableStateOf(engine.defaultPort.toString()) }
     var durationSeconds by remember { mutableStateOf("10") }
     var protocol by remember { mutableStateOf("TCP") }
     var reverse by remember { mutableStateOf(false) }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("IPERF3 PROFILES") }) },
+        topBar = { TopAppBar(title = { Text("IPERF PROFILES") }) },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             if (profiles.isEmpty()) {
@@ -86,6 +88,27 @@ fun IperfProfilesScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // OpenManet nodes run iperf2 by default (`iperf`, not `iperf3`) - the two
+                    // speak incompatible wire protocols, so this picks which vendored binary and
+                    // output parser to use, not just a cosmetic label.
+                    FilterChip(
+                        selected = engine == IperfEngine.V3,
+                        onClick = {
+                            if (port == IperfEngine.V2.defaultPort.toString()) port = IperfEngine.V3.defaultPort.toString()
+                            engine = IperfEngine.V3
+                        },
+                        label = { Text("iperf3") },
+                    )
+                    FilterChip(
+                        selected = engine == IperfEngine.V2,
+                        onClick = {
+                            if (port == IperfEngine.V3.defaultPort.toString()) port = IperfEngine.V2.defaultPort.toString()
+                            engine = IperfEngine.V2
+                        },
+                        label = { Text("iperf2") },
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = port,
                         onValueChange = { port = it },
@@ -110,10 +133,11 @@ fun IperfProfilesScreen(
                             IperfProfile(
                                 name = name,
                                 host = host,
-                                port = port.toIntOrNull() ?: 5201,
+                                port = port.toIntOrNull() ?: engine.defaultPort,
                                 protocol = protocol,
                                 durationSeconds = durationSeconds.toIntOrNull() ?: 10,
                                 reverse = reverse,
+                                engine = engine.name,
                             ),
                         )
                         name = ""
@@ -134,7 +158,11 @@ private fun ProfileRow(profile: IperfProfile, onRun: () -> Unit, onDelete: () ->
     ListItem(
         headlineContent = { Text(profile.name) },
         supportingContent = {
-            Text("${profile.host}:${profile.port} • ${profile.protocol} • ${profile.durationSeconds}s${if (profile.reverse) " • reverse" else ""}")
+            val engineLabel = if (profile.engine == IperfEngine.V2.name) "iperf2" else "iperf3"
+            Text(
+                "${profile.host}:${profile.port} • $engineLabel • ${profile.protocol} • " +
+                    "${profile.durationSeconds}s${if (profile.reverse) " • reverse" else ""}",
+            )
         },
         trailingContent = {
             Row {

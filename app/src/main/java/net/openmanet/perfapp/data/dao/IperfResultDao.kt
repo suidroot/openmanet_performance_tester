@@ -19,4 +19,7 @@ interface IperfResultDao {
 
     @Insert
     suspend fun insert(result: IperfResult): Long
+
+    @Query("DELETE FROM iperf_result")
+    suspend fun deleteAll()
 }
