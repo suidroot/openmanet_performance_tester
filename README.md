@@ -2,8 +2,14 @@
 
 An Android app that runs on an End User Device (EUD) to test performance across an
 [OpenManet](https://openmanet.github.io/docs/) mesh network: connect to a node, discover the
-mesh, ping targets, log GPS (device + Cursor-on-Target multicast), run iperf3 throughput tests,
-store everything locally as time series, and export/upload the results as CSV.
+mesh, ping targets, track GPS position (device GPS, other units' Cursor-on-Target multicast, and
+the node's own NMEA GNSS feed), run iperf2/iperf3 throughput tests, store everything locally as
+time series, and export/upload the results as CSV.
+
+GPS position is always shown on the dashboard once connected - it isn't gated on a logging
+session being active. Ping/neighbor-stat logging and iperf tests are each independently
+start/stop-able and keep running in the background (as foreground services) if you navigate away
+or background the app.
 
 The app does **not** manage Wi-Fi. You join the mesh SSID yourself via Android's system Wi-Fi
 settings before opening the app; the app only talks to the node once you're already on its
@@ -21,11 +27,11 @@ switch on each card includes/excludes that node from the current test session.
 
 - Android Studio (or the command-line tools below) with:
   - Android SDK platform 37+, build-tools 35/37
-  - NDK 29 (side-by-side), only needed if rebuilding the vendored iperf3 binaries
+  - NDK 29 (side-by-side), only needed if rebuilding the vendored iperf2/iperf3 binaries
 - [`buf`](https://buf.build/docs/installation/) and `protoc`, only needed if regenerating the
   Connect-RPC client from the vendored `.proto` files
 - A physical Android device (minSdk 29) or emulator to actually exercise mesh connectivity,
-  GPS, ping, and iperf3 - none of that is meaningfully testable in a JVM unit test
+  GPS, ping, and iperf2/iperf3 - none of that is meaningfully testable in a JVM unit test
 
 ## Building
 
@@ -40,6 +46,18 @@ Unit tests (parsers, Room DAOs, the connection state machine) run without a devi
 ./gradlew testDebugUnitTest
 ```
 
+## Sideloading onto a device
+
+```sh
+./scripts/build_sideload_apk.sh
+```
+
+Runs the unit tests, builds a debug APK, and copies it to `dist/manet-perf-app-<version>-debug-<timestamp>.apk`. If exactly one device is attached over adb, it installs it directly; otherwise it prints the path so you can copy it to the phone and install it by hand (tap the file in a file manager, or transfer it via USB/AirDrop/a link - Android will prompt to allow installing from that source the first time).
+
+Flags: `--skip-tests` to skip the test run, `--no-install` to always just build and copy without touching adb.
+
+This deliberately builds the **debug** variant, not a release build: it's signed automatically with the machine-local debug keystore (the same signing this project's on-device testing has used throughout - see `CLAUDE.md`), so there's no keystore to create or manage. That also means an APK built this way on one machine won't cleanly *update* one built on another (different debug keystores don't match) - uninstall the old copy first if you hit `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. A real release build (its own signing keystore, minification, a stable identity for OTA-style updates) is a separate, bigger decision this script intentionally doesn't make for you.
+
 ## Project layout
 
 Single-module Compose app, packages organized by feature:
@@ -48,15 +66,22 @@ Single-module Compose app, packages organized by feature:
 app/src/main/java/net/openmanet/perfapp/
   connectivity/   node-address entry, default-gateway detection (no Wi-Fi management)
   auth/           encrypted per-node credential storage (EncryptedSharedPreferences)
-  rpc/            Connect-RPC client to openmanetd, one repository per service, real auth,
-                  node-identity dedup/hostname cleanup (Hostnames.kt)
+  rpc/            Connect-RPC client to openmanetd (cached/reused per node+network), one
+                  repository per service, real auth, node-identity dedup/hostname cleanup
   ping/           ICMP ping via /system/bin/ping subprocess (no root required)
-  cot/            Cursor-on-Target UDP multicast listener (239.2.3.1:6969)
-  gps/            device GPS (FusedLocationProviderClient) + CoT fix merging
-  iperf/          iperf3 subprocess bridge (vendored native binaries) + output parser
-  session/        foreground service coordinating ping/GPS/CoT for a test run
+  cot/            SA multicast listener (239.2.3.1, ports 6969 CoT XML + 4349 openmanetd's raw
+                  NMEA GNSS feed), CoT XML parser, NMEA 0183 parser
+  gps/            device GPS (FusedLocationProviderClient), source merging by GpsSource
+                  (DEVICE/COT/NODE_GNSS), and LiveGpsHolder for always-on dashboard display
+                  independent of whether a logging session is active
+  iperf/          iperf2 + iperf3 subprocess bridge (vendored native binaries, selectable per
+                  run) + output parser (iperf3 text, iperf2 `-y C` CSV)
+  session/        foreground services: TestSessionService (ping + neighbor-stat logging) and
+                  IperfSessionService (standalone, independently start/stoppable iperf runs),
+                  sharing a common ForegroundSessionService base
   data/           Room entities/DAOs/database, CSV export, upload
-  settings/       app settings persisted via DataStore (refresh interval, disabled nodes)
+  settings/       app settings persisted via DataStore (refresh interval, disabled nodes,
+                  preferred GPS source)
   ui/             one package per screen, plus nav/ for the NavHost and shared ViewModels
 ```
 
@@ -68,8 +93,10 @@ Connect-RPC Kotlin/Java stubs; regenerate with:
 ./scripts/generate_proto.sh
 ```
 
-`app/src/main/jniLibs/<abi>/libiperf3exec.so` are real `iperf3` binaries cross-compiled for
-Android (see `scripts/build_iperf3.sh` - only needs to be re-run when bumping the iperf3 version
-or adding an ABI, not on every build).
+`app/src/main/jniLibs/<abi>/libiperf3exec.so` and `libiperf2exec.so` are real `iperf3`/`iperf2`
+binaries cross-compiled for Android (see `scripts/build_iperf3.sh`/`scripts/build_iperf2.sh` -
+only need to be re-run when bumping a version or adding an ABI, not on every build). OpenManet
+nodes run iperf2 by default - iperf2 and iperf3 are wire-incompatible, so pick the engine
+matching whatever's actually listening on the target.
 
 See `CLAUDE.md` for the non-obvious decisions and gotchas behind this setup.
