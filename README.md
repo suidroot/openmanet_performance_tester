@@ -46,6 +46,38 @@ Unit tests (parsers, Room DAOs, the connection state machine) run without a devi
 ./gradlew testDebugUnitTest
 ```
 
+### Building without installing anything locally
+
+`docker/Dockerfile` packages the Android SDK, `buf`, and `protoc` so none of that needs to be
+installed on the host - only Docker itself:
+
+```sh
+./scripts/docker_build.sh                     # assembleDebug (default)
+./scripts/docker_build.sh testDebugUnitTest
+./scripts/docker_build.sh assembleDebug testDebugUnitTest
+```
+
+Builds (or reuses a cached) image, then runs the repo's own `./gradlew` inside a container with
+the repo mounted at `/workspace` - output APKs and test reports land in the normal
+`app/build/...` paths on the host, owned by you (the container runs as your own uid:gid, not
+root). Gradle/SDK downloads are cached in `.gradle-docker/` inside the repo (gitignored) so they
+survive across runs. Once it finishes, the APK is at the same path as a native build and installs
+the same way:
+
+```sh
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+Forces the image to `linux/amd64` even on Apple Silicon: AGP's `aapt2` native binary isn't
+reliably published for `linux/arm64`, and letting the base image resolve to arm64 while `aapt2`
+resolves to amd64 produces a broken mixed-arch container - confirmed hitting exactly that
+failure before pinning the platform. Docker Desktop emulates amd64 transparently either way, at
+some speed cost on Apple Silicon.
+
+The image deliberately does **not** include the NDK - only `scripts/build_iperf2.sh`/
+`build_iperf3.sh` (rebuilding the vendored native binaries, not part of a normal app build) need
+it, and it's a multi-gigabyte download not worth carrying by default.
+
 ## Sideloading onto a device
 
 ```sh

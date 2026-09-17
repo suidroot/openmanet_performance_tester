@@ -8,11 +8,12 @@ managed:
 inputs:
   - directory: app/src/main/proto
 plugins:
+  # protoc_path deliberately omitted - buf resolves "protoc" via PATH, which works both on a
+  # host machine (e.g. Homebrew's /opt/homebrew/bin/protoc) and inside the Docker build image
+  # (see docker/Dockerfile), unlike a hardcoded absolute path.
   - protoc_builtin: java
-    protoc_path: /opt/homebrew/bin/protoc
     out: app/src/main/kotlin-gen
   - protoc_builtin: kotlin
-    protoc_path: /opt/homebrew/bin/protoc
     out: app/src/main/kotlin-gen
   - local: .tools/protoc-gen-connect-kotlin
     out: app/src/main/kotlin-gen

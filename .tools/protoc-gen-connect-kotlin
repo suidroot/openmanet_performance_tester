@@ -1,2 +1,2 @@
 #!/bin/sh
-exec /opt/homebrew/opt/openjdk/bin/java -jar "$(dirname "$0")/protoc-gen-connect-kotlin.jar" "$@"
+exec java -jar "$(dirname "$0")/protoc-gen-connect-kotlin.jar" "$@"
