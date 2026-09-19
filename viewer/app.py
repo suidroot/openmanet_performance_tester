@@ -214,7 +214,7 @@ if __name__ == "__main__":
                     help="bind address (default 127.0.0.1)")
     ap.add_argument("--lan", action="store_true",
                     help="listen on all interfaces (0.0.0.0) so a phone can upload; no auth!")
-    ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", 5000)))
+    ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", 5050)))
     args = ap.parse_args()
     host = "0.0.0.0" if args.lan else args.host
 

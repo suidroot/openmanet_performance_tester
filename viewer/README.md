@@ -16,16 +16,19 @@ python3 -m venv .venv
 .venv/bin/python app.py
 ```
 
-Then open <http://127.0.0.1:5000>. To receive uploads from the phone, start it with `--lan`
+Then open <http://127.0.0.1:5050>. To receive uploads from the phone, start it with `--lan`
 instead (see [Receiving uploads from the app](#receiving-uploads-from-the-app)). Requires Python 3.9+ and Flask; Leaflet and the OpenStreetMap
 tiles load from the internet, so the browser needs connectivity for the map itself.
 
 | Option / env var          | Default        | Purpose                                        |
 |---------------------------|----------------|------------------------------------------------|
-| `--port` / `PORT`         | `5000`         | Port to listen on                              |
+| `--port` / `PORT`         | `5050`         | Port to listen on                              |
 | `--host` / `HOST`         | `127.0.0.1`    | Bind address                                   |
 | `--lan`                   | off            | Shorthand for `--host 0.0.0.0` (phone uploads) |
 | `MANET_DB`                | `sessions.db`  | Path to the SQLite database                    |
+
+The default is 5050 rather than Flask's usual 5000 because macOS's AirPlay Receiver owns port 5000
+and answers every request there with `403 Forbidden`.
 
 ## Using it
 
@@ -57,7 +60,7 @@ file.
 .venv/bin/python app.py --lan
 ```
 
-It prints a ready-to-paste URL such as `http://192.168.1.20:5000/session_log.csv`; put that in the
+It prints a ready-to-paste URL such as `http://192.168.1.20:5050/session_log.csv`; put that in the
 Export screen's "Endpoint URL" field. The last path segment is used as the session name. The
 phone needs internet/LAN reachability to this machine (the mesh itself usually has none, so
 upload after leaving the mesh network). A duplicate upload returns 200 and is ignored; an
