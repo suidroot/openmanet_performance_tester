@@ -1,0 +1,3 @@
+.venv/
+sessions.db
+__pycache__/

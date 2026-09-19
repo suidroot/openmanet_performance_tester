@@ -90,6 +90,22 @@ Flags: `--skip-tests` to skip the test run, `--no-install` to always just build 
 
 This deliberately builds the **debug** variant, not a release build: it's signed automatically with the machine-local debug keystore (the same signing this project's on-device testing has used throughout - see `CLAUDE.md`), so there's no keystore to create or manage. That also means an APK built this way on one machine won't cleanly *update* one built on another (different debug keystores don't match) - uninstall the old copy first if you hit `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. A real release build (its own signing keystore, minification, a stable identity for OTA-style updates) is a separate, bigger decision this script intentionally doesn't make for you.
 
+## Reviewing results on a desktop
+
+`viewer/` is a small Python (Flask + SQLite + Leaflet) web tool that ingests the CSV files the
+app exports and plots each session on an interactive map, with a session dropdown, color-by
+metric (signal, throughput, ping, quality) and a two-point distance measuring tool. See
+[`viewer/README.md`](viewer/README.md).
+
+```sh
+cd viewer && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python app.py          # http://127.0.0.1:5000
+.venv/bin/python app.py --lan    # also accept the app's Export-screen upload from a phone
+```
+
+With `--lan` it prints the URL to paste into the app's Export screen "Endpoint URL" field, and
+uploads land directly in the viewer's database (this replaced `scripts/upload_test_server.py`).
+
 ## Project layout
 
 Single-module Compose app, packages organized by feature:
@@ -130,5 +146,8 @@ binaries cross-compiled for Android (see `scripts/build_iperf3.sh`/`scripts/buil
 only need to be re-run when bumping a version or adding an ABI, not on every build). OpenManet
 nodes run iperf2 by default - iperf2 and iperf3 are wire-incompatible, so pick the engine
 matching whatever's actually listening on the target.
+
+`viewer/` is the standalone desktop session viewer (`app.py` Flask backend, `static/index.html`
+single-page Leaflet map); it is independent of the Android build.
 
 See `CLAUDE.md` for the non-obvious decisions and gotchas behind this setup.

@@ -180,3 +180,30 @@ can't substitute for on-device testing. When diagnosing a device-only bug:
   it with a local `sqlite3` (the on-device shell doesn't have one). This is what found the ping
   `SO_BINDTODEVICE` bug above - `rawOutputLine` had the real error, and "timeout" alone wouldn't
   have.
+
+## Session viewer (`viewer/`)
+
+A standalone Python tool, unrelated to the Gradle build: `viewer/app.py` (Flask + sqlite3) ingests
+the app's exported session CSVs and `viewer/static/index.html` (a single file, Leaflet from a CDN,
+no build step) draws them on a map. Run it with the venv described in `viewer/README.md`.
+
+- **CSV columns are matched by header name** (case-insensitive) via the `COLUMNS` map in
+  `app.py`. Note the export's longitude header is literally `Log`, not `Lon` - both are accepted.
+  If the Android export's columns change, update that map rather than positional parsing.
+- **Empty `Ping delay` means a timeout**, stored as NULL and rendered as "timeout"/grey - don't
+  coerce it to 0.
+- **Dedup is by SHA-256 of the file bytes**, not filename: re-uploading identical content is a
+  no-op, same name with different content gets a `(2)` suffix.
+- **Color ranges are hard-coded** in the `METRICS` table in `index.html` (tuned to a single
+  sample session); adjust there if real data falls outside them.
+- **Schema changes**: the tables are created with `CREATE TABLE IF NOT EXISTS`, so editing a
+  column on an existing `sessions.db` is not picked up - delete the DB (it's just a cache of the
+  CSVs) or add a migration.
+- **Also the upload receiver for the app's Export screen** (replaced `scripts/upload_test_server.py`).
+  `data/export/UploadService.upload()` sends a raw HTTP `PUT` with a `text/csv` body - not
+  multipart, no auth header - so `app.py`'s catch-all `PUT`/`POST /<path:name>` route reads the raw
+  body and feeds it through the same `ingest()` as the browser upload; the last URL segment becomes
+  the session name. Keep that route method-tolerant (some presigned-URL-style endpoints want POST)
+  and don't require multipart or auth on it, or the phone's upload will break.
+- Binds to `127.0.0.1` by default; `--lan` (0.0.0.0) is needed for the phone to reach it and exposes
+  the unauthenticated delete endpoint too, so it's opt-in and prints a warning.

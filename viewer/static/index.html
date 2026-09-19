@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MANET Session Map</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  html, body, #map { height: 100%; margin: 0; }
+  body { font: 13px/1.4 system-ui, sans-serif; }
+  .panel { background: #fff; padding: 8px 10px; border-radius: 6px;
+           box-shadow: 0 1px 5px rgba(0,0,0,.4); }
+  #controls { position: absolute; top: 10px; left: 55px; z-index: 1000; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; max-width: calc(100% - 80px); }
+  #controls select, #controls button { font: inherit; padding: 4px 6px; }
+  #session { min-width: 260px; }
+  #upload-label { cursor: pointer; border: 1px solid #888; border-radius: 4px; padding: 3px 8px; background: #f4f4f4; }
+  #status { color: #555; }
+  .legend { line-height: 1.5; }
+  #measure.active { background: #ffd54f; }
+  .leaflet-container.measuring { cursor: crosshair; }
+  .legend i { display: inline-block; width: 14px; height: 10px; margin-right: 6px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="controls" class="panel">
+  <select id="session"><option value="">Loading sessions…</option></select>
+  <label>Color by
+    <select id="metric">
+      <option value="signal_dbm">Signal (dBm)</option>
+      <option value="throughput">Throughput</option>
+      <option value="ping_ms">Ping delay (ms)</option>
+      <option value="quality">Quality</option>
+    </select>
+  </label>
+  <label id="upload-label">Upload CSV…<input id="file" type="file" accept=".csv" multiple hidden></label>
+  <button id="measure" title="Click two points on the map to measure between them">Measure</button>
+  <button id="delete" title="Delete this session">Delete</button>
+  <span id="status"></span>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// Ranges: [min, max, higherIsBetter]
+const METRICS = {
+  signal_dbm: { label: "Signal (dBm)", min: -95, max: -45, good: "high" },
+  throughput: { label: "Throughput",   min: 1,   max: 7,   good: "high" },
+  ping_ms:    { label: "Ping (ms)",    min: 10,  max: 500, good: "low"  },
+  quality:    { label: "Quality",      min: -95, max: -45, good: "high" },
+};
+const NO_DATA = "#777";
+
+const map = L.map("map").setView([43.647, -70.266], 17);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19, attribution: "&copy; OpenStreetMap contributors"
+}).addTo(map);
+
+const layer = L.layerGroup().addTo(map);
+const sel = document.getElementById("session");
+const metricSel = document.getElementById("metric");
+const statusEl = document.getElementById("status");
+let current = null;
+
+function color(metric, v) {
+  if (v == null) return NO_DATA;
+  const m = METRICS[metric];
+  let t = (v - m.min) / (m.max - m.min);
+  t = Math.max(0, Math.min(1, t));
+  if (m.good === "low") t = 1 - t;
+  return `hsl(${Math.round(t * 120)}, 85%, 42%)`;   // red -> green
+}
+
+const fmt = (v, unit = "") => v == null ? "—" : v + unit;
+
+function popup(p) {
+  return `<b>${p.ts}</b><br>` +
+    `Device: ${fmt(p.device)} (${fmt(p.ip)})<br>Mode: ${fmt(p.mode)}<br>` +
+    `Ping: ${p.ping_ms == null ? "timeout" : p.ping_ms + " ms"}<br>` +
+    `Throughput: ${fmt(p.throughput)}<br>Signal: ${fmt(p.signal_dbm, " dBm")}<br>` +
+    `Quality: ${fmt(p.quality)}<br>iperf: ${fmt(p.iperf)}`;
+}
+
+function render() {
+  layer.clearLayers();
+  if (!current || !current.points.length) return;
+  const metric = metricSel.value;
+  const pts = current.points;
+  for (let i = 1; i < pts.length; i++) {
+    L.polyline([[pts[i-1].lat, pts[i-1].lon], [pts[i].lat, pts[i].lon]],
+      { color: color(metric, pts[i][metric]), weight: 5, opacity: 0.8 }).addTo(layer);
+  }
+  pts.forEach((p, i) => {
+    const start = i === 0, end = i === pts.length - 1;
+    L.circleMarker([p.lat, p.lon], {
+      radius: start || end ? 8 : 4,
+      color: start ? "#0a0" : end ? "#c00" : "#333",
+      weight: start || end ? 3 : 1,
+      fillColor: color(metric, p[metric]), fillOpacity: 1,
+    }).bindPopup(popup(p)).bindTooltip(start ? "Start" : end ? "End" : p.ts)
+      .on("click", (e) => { if (measuring) { map.closePopup(); L.DomEvent.stopPropagation(e); addMeasurePoint(e.latlng, p); } })
+      .addTo(layer);
+  });
+  legend.update();
+}
+
+async function loadSession(id) {
+  if (!id) { current = null; layer.clearLayers(); statusEl.textContent = ""; return; }
+  const r = await fetch(`/api/sessions/${id}`);
+  current = await r.json();
+  render();
+  map.fitBounds(L.latLngBounds(current.points.map(p => [p.lat, p.lon])), { padding: [40, 40] });
+  statusEl.textContent = `${current.points.length} points`;
+  history.replaceState(null, "", `#${id}`);
+}
+
+async function refreshList(selectId) {
+  const list = await (await fetch("/api/sessions")).json();
+  sel.innerHTML = "";
+  if (!list.length) {
+    sel.innerHTML = `<option value="">No sessions — upload a CSV</option>`;
+    loadSession(null);
+    return;
+  }
+  sel.innerHTML = `<option value="">Select a session…</option>`;
+  for (const s of list) {
+    const o = document.createElement("option");
+    o.value = s.id;
+    o.textContent = `${s.name} — ${s.start || "?"} (${s.points} pts)`;
+    sel.appendChild(o);
+  }
+  const want = selectId || location.hash.slice(1) || list[0].id;
+  if ([...sel.options].some(o => o.value == want)) {
+    sel.value = want;
+    loadSession(want);
+  }
+}
+
+const legend = L.control({ position: "bottomleft" });
+legend.onAdd = function () { this._div = L.DomUtil.create("div", "panel legend"); this.update(); return this._div; };
+legend.update = function () {
+  const metric = metricSel.value, m = METRICS[metric];
+  const steps = 5;
+  let html = `<b>${m.label}</b><br>`;
+  for (let i = 0; i < steps; i++) {
+    const v = m.min + (m.max - m.min) * i / (steps - 1);
+    html += `<i style="background:${color(metric, v)}"></i>${Math.round(v * 10) / 10}<br>`;
+  }
+  html += `<i style="background:${NO_DATA}"></i>no data`;
+  this._div.innerHTML = html;
+};
+legend.addTo(map);
+
+sel.addEventListener("change", () => loadSession(sel.value));
+metricSel.addEventListener("change", render);
+
+document.getElementById("file").addEventListener("change", async (e) => {
+  const fd = new FormData();
+  for (const f of e.target.files) fd.append("files", f);
+  statusEl.textContent = "Uploading…";
+  const results = await (await fetch("/api/upload", { method: "POST", body: fd })).json();
+  e.target.value = "";
+  const errs = results.filter(r => r.error).map(r => `${r.file}: ${r.error}`);
+  const last = results.filter(r => !r.error).pop();
+  await refreshList(last && last.id);
+  if (errs.length) statusEl.textContent = errs.join("; ");
+  else if (last && last.duplicate) statusEl.textContent = "Already imported";
+});
+
+document.getElementById("delete").addEventListener("click", async () => {
+  if (!sel.value || !confirm("Delete this session from the database?")) return;
+  await fetch(`/api/sessions/${sel.value}`, { method: "DELETE" });
+  history.replaceState(null, "", location.pathname);
+  refreshList();
+});
+
+// ---- Measure tool ----
+const measureLayer = L.layerGroup().addTo(map);
+const measureBtn = document.getElementById("measure");
+let measuring = false, mPoints = [];
+
+function haversine(a, b) {
+  const R = 6371008.8, r = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * r, dLon = (b.lng - a.lng) * r;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function bearing(a, b) {
+  const r = Math.PI / 180, y = Math.sin((b.lng - a.lng) * r) * Math.cos(b.lat * r);
+  const x = Math.cos(a.lat * r) * Math.sin(b.lat * r) - Math.sin(a.lat * r) * Math.cos(b.lat * r) * Math.cos((b.lng - a.lng) * r);
+  return (Math.atan2(y, x) / r + 360) % 360;
+}
+function fmtDist(m) {
+  const ft = m * 3.28084;
+  return `${m < 1000 ? m.toFixed(1) + " m" : (m / 1000).toFixed(3) + " km"} (${ft < 5280 ? ft.toFixed(0) + " ft" : (ft / 5280).toFixed(2) + " mi"})`;
+}
+function delta(label, a, b, unit) {
+  if (a == null || b == null) return "";
+  const d = Math.round((b - a) * 10) / 10;
+  return `<br>${label}: ${a} → ${b}${unit} (${d > 0 ? "+" : ""}${d})`;
+}
+function clearMeasure() { measureLayer.clearLayers(); mPoints = []; }
+
+function addMeasurePoint(latlng, data) {
+  if (mPoints.length >= 2) clearMeasure();
+  mPoints.push({ latlng, data });
+  L.circleMarker(latlng, { radius: 6, color: "#ff6f00", fillColor: "#ffd54f", fillOpacity: 1, interactive: false }).addTo(measureLayer);
+  if (mPoints.length < 2) return;
+  const [a, b] = mPoints;
+  const line = L.polyline([a.latlng, b.latlng], { color: "#ff6f00", weight: 3, dashArray: "6 6", interactive: false }).addTo(measureLayer);
+  let html = `<b>${fmtDist(haversine(a.latlng, b.latlng))}</b><br>Bearing: ${bearing(a.latlng, b.latlng).toFixed(0)}°`;
+  if (a.data && b.data) {
+    const dt = (new Date(b.data.ts.replace(" ", "T")) - new Date(a.data.ts.replace(" ", "T"))) / 1000;
+    if (!isNaN(dt)) html += `<br>Time: ${dt}s`;
+    html += delta("Signal", a.data.signal_dbm, b.data.signal_dbm, " dBm") +
+            delta("Throughput", a.data.throughput, b.data.throughput, "") +
+            delta("Ping", a.data.ping_ms, b.data.ping_ms, " ms");
+  }
+  html += `<br><small>Click again to start a new measurement</small>`;
+  L.popup({ closeOnClick: false, autoClose: false }).setLatLng(L.latLngBounds([a.latlng, b.latlng]).getCenter())
+    .setContent(html).addTo(measureLayer);
+}
+
+function setMeasuring(on) {
+  measuring = on;
+  measureBtn.classList.toggle("active", on);
+  map.getContainer().classList.toggle("measuring", on);
+  if (!on) clearMeasure();
+}
+measureBtn.addEventListener("click", () => setMeasuring(!measuring));
+map.on("click", (e) => { if (measuring) addMeasurePoint(e.latlng, null); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") setMeasuring(false); });
+
+// Pick up files uploaded by the phone while the tab was in the background.
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshList(sel.value || undefined); });
+
+refreshList();
+</script>
+</body>
+</html>
