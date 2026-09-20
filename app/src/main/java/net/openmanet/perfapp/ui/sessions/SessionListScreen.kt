@@ -18,7 +18,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import net.openmanet.perfapp.data.entities.TestSession
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -34,11 +33,14 @@ fun SessionListScreen(
         topBar = { TopAppBar(title = { Text("SESSIONS") }) },
     ) { padding ->
         if (sessions.isEmpty()) {
-            Text("No test sessions yet.", modifier = Modifier.padding(padding).padding(24.dp))
+            Text(
+                "No test sessions yet. Sessions are recorded while connected to a node.",
+                modifier = Modifier.padding(padding).padding(24.dp),
+            )
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
-                items(sessions, key = { it.sessionId }) { session ->
-                    SessionRow(session, onClick = { onOpenSession(session.sessionId) })
+                items(sessions, key = { it.session.sessionId }) { summary ->
+                    SessionRow(summary, onClick = { onOpenSession(summary.session.sessionId) })
                     HorizontalDivider()
                 }
             }
@@ -47,12 +49,17 @@ fun SessionListScreen(
 }
 
 @Composable
-private fun SessionRow(session: TestSession, onClick: () -> Unit) {
+private fun SessionRow(summary: SessionSummary, onClick: () -> Unit) {
+    val session = summary.session
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US) }
     ListItem(
         headlineContent = { Text(dateFormat.format(Date(session.startedAtMs))) },
         supportingContent = {
-            Text(if (session.endedAtMs == null) "running" else "ended ${dateFormat.format(Date(session.endedAtMs))}")
+            val status = if (session.endedAtMs == null) "running" else "ended ${dateFormat.format(Date(session.endedAtMs))}"
+            Text(
+                "$status\n${summary.pingCount} ping · ${summary.gpsCount} GPS · ${summary.iperfCount} iperf" +
+                    if (summary.isEmpty) " (no data)" else "",
+            )
         },
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
     )

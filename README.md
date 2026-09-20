@@ -11,6 +11,12 @@ session being active. Ping/neighbor-stat logging and iperf tests are each indepe
 start/stop-able and keep running in the background (as foreground services) if you navigate away
 or background the app.
 
+Recorded sessions can be reviewed, exported and uploaded without being connected to a node: the
+connect screen has a **Sessions** button (top right) that opens the session list (with ping/GPS/
+iperf record counts per session) and, from there, each session's Export/Upload screen. Uploads go
+to any HTTP endpoint that accepts a `PUT` - e.g. the desktop viewer in `viewer/` - so you can
+collect data on the mesh, then upload it later from any network.
+
 The app does **not** manage Wi-Fi. You join the mesh SSID yourself via Android's system Wi-Fi
 settings before opening the app; the app only talks to the node once you're already on its
 network.

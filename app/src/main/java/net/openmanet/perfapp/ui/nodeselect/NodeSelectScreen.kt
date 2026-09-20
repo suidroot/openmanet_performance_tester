@@ -43,6 +43,7 @@ import net.openmanet.perfapp.ui.nav.ConnectionViewModel
 fun NodeSelectScreen(
     viewModel: ConnectionViewModel,
     onOpenSettings: () -> Unit,
+    onOpenSessions: () -> Unit,
 ) {
     val savedNodes by viewModel.savedNodes.collectAsStateWithLifecycle()
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -91,7 +92,12 @@ fun NodeSelectScreen(
                         )
                     }
                 },
-                actions = { TextButton(onClick = onOpenSettings) { Text("SETTINGS") } },
+                actions = {
+                    // Recorded sessions live in the local DB, so they can be reviewed/exported/
+                    // uploaded without being connected to a node.
+                    TextButton(onClick = onOpenSessions) { Text("SESSIONS") }
+                    TextButton(onClick = onOpenSettings) { Text("SETTINGS") }
+                },
             )
         },
     ) { padding ->

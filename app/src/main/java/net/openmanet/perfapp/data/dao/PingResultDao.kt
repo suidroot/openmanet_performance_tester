@@ -17,6 +17,9 @@ interface PingResultDao {
     )
     suspend fun getInRange(sessionId: String, fromMs: Long, toMs: Long): List<PingResult>
 
+    @Query("SELECT COUNT(*) FROM ping_result WHERE sessionId = :sessionId")
+    suspend fun countForSession(sessionId: String): Int
+
     @Insert
     suspend fun insert(result: PingResult): Long
 

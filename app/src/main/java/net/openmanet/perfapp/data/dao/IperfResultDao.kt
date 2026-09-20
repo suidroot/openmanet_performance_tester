@@ -17,6 +17,9 @@ interface IperfResultDao {
     )
     suspend fun getInRange(sessionId: String, fromMs: Long, toMs: Long): List<IperfResult>
 
+    @Query("SELECT COUNT(*) FROM iperf_result WHERE sessionId = :sessionId")
+    suspend fun countForSession(sessionId: String): Int
+
     @Insert
     suspend fun insert(result: IperfResult): Long
 

@@ -78,6 +78,7 @@ fun ManetNavHost(navController: NavHostController = rememberNavController()) {
             NodeSelectScreen(
                 viewModel = connectionViewModel,
                 onOpenSettings = { navController.navigate(ManetRoutes.SETTINGS) },
+                onOpenSessions = { navController.navigate(ManetRoutes.SESSIONS) },
             )
         }
         composable(ManetRoutes.DASHBOARD) {

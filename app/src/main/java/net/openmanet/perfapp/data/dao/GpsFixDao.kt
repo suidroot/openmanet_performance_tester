@@ -17,6 +17,9 @@ interface GpsFixDao {
     )
     suspend fun getInRange(sessionId: String, fromMs: Long, toMs: Long): List<GpsFix>
 
+    @Query("SELECT COUNT(*) FROM gps_fix WHERE sessionId = :sessionId")
+    suspend fun countForSession(sessionId: String): Int
+
     @Insert
     suspend fun insert(fix: GpsFix): Long
 
