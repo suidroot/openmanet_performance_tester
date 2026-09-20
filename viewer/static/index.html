@@ -18,6 +18,8 @@
   .legend { line-height: 1.5; }
   #measure.active { background: #ffd54f; }
   .leaflet-container.measuring { cursor: crosshair; }
+  #anon.active { background: #b39ddb; }
+  .leaflet-container.anonymous { background: #eef0f3; }
   .legend i { display: inline-block; width: 14px; height: 10px; margin-right: 6px; }
 </style>
 </head>
@@ -34,6 +36,7 @@
     </select>
   </label>
   <label id="upload-label">Upload CSV…<input id="file" type="file" accept=".csv" multiple hidden></label>
+  <button id="anon" title="Hide the map so the route can be shared without revealing where it is">Anonymous</button>
   <button id="measure" title="Click two points on the map to measure between them">Measure</button>
   <button id="delete" title="Delete this session">Delete</button>
   <span id="status"></span>
@@ -50,9 +53,10 @@ const METRICS = {
 const NO_DATA = "#777";
 
 const map = L.map("map").setView([43.647, -70.266], 17);
-L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19, attribution: "&copy; OpenStreetMap contributors"
 }).addTo(map);
+let anonymous = false;
 
 const layer = L.layerGroup().addTo(map);
 const sel = document.getElementById("session");
@@ -73,7 +77,7 @@ const fmt = (v, unit = "") => v == null ? "—" : v + unit;
 
 function popup(p) {
   return `<b>${p.ts}</b><br>` +
-    `Device: ${fmt(p.device)} (${fmt(p.ip)})<br>Mode: ${fmt(p.mode)}<br>` +
+    `Device: ${anonymous ? fmt(p.device) : `${fmt(p.device)} (${fmt(p.ip)})`}<br>Mode: ${fmt(p.mode)}<br>` +
     `Ping: ${p.ping_ms == null ? "timeout" : p.ping_ms + " ms"}<br>` +
     `Throughput: ${fmt(p.throughput)}<br>Signal: ${fmt(p.signal_dbm, " dBm")}<br>` +
     `Quality: ${fmt(p.quality)}<br>iperf: ${fmt(p.iperf)}`;
@@ -171,6 +175,17 @@ document.getElementById("delete").addEventListener("click", async () => {
   history.replaceState(null, "", location.pathname);
   refreshList();
 });
+
+// ---- Anonymous mode: drop the basemap, keep the route ----
+const anonBtn = document.getElementById("anon");
+function setAnonymous(on) {
+  anonymous = on;
+  anonBtn.classList.toggle("active", on);
+  map.getContainer().classList.toggle("anonymous", on);
+  if (on) map.removeLayer(tiles); else tiles.addTo(map);
+  render();
+}
+anonBtn.addEventListener("click", () => setAnonymous(!anonymous));
 
 // ---- Measure tool ----
 const measureLayer = L.layerGroup().addTo(map);
